@@ -10,7 +10,7 @@ let package = Package(
   ],
   products: [],
   dependencies: [
-    .package(url: "https://github.com/unixpickle/honeycrisp", from: "0.0.13"),
+    .package(url: "https://github.com/unixpickle/honeycrisp", from: "0.0.14"),
     .package(url: "https://github.com/apple/swift-argument-parser", from: "1.3.0"),
   ],
   targets: [

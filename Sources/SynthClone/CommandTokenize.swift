@@ -42,7 +42,7 @@ class CommandTokenize: Command {
         at: URL(filePath: outputDir), withIntermediateDirectories: false)
     }
 
-    vqvae = VQVAE(channels: 4, vocab: 16384, latentChannels: 4, downsamples: 10)
+    vqvae = VQVAE(channels: 1, vocab: 16384, latentChannels: 4, downsamples: 10)
   }
 
   override public func run() async throws {

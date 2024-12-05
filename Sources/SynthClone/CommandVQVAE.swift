@@ -36,7 +36,7 @@ class CommandVQVAE: Command {
     audioDir = args[0]
     savePath = args[1]
 
-    model = VQVAE(channels: 4, vocab: 16384, latentChannels: 4, downsamples: 4)
+    model = VQVAE(channels: 1, vocab: 16384, latentChannels: 4, downsamples: 10)
     opt = Adam(model.parameters, lr: lr)
     dataLoader = AudioDataLoader(
       batchSize: bs, audios: try AudioIterator(audioDir: audioDir, sampleCount: sampleCount))

@@ -73,7 +73,7 @@ class AudioDataLoader: Sequence, IteratorProtocol {
     if batch.count == 0 {
       return .failure(DataError.datasetIsEmpty)
     }
-    return .success((Tensor(stack: batch).move(axis: -1, to: 1), state!))
+    return .success((Tensor(stack: batch), state!))
   }
 }
 

@@ -7,38 +7,45 @@ enum AudioError: Error {
 }
 
 func loadAudio(path: String, sampleCount: Int, sampleRate: Int = 24000) throws -> Tensor {
-  let audioFile: AVAudioFile
-  audioFile = try AVAudioFile(forReading: URL(filePath: path))
-
-  let engine = AVAudioEngine()
-  let playerNode = AVAudioPlayerNode()
-  engine.attach(playerNode)
+  let audioFile = try AVAudioFile(forReading: URL(filePath: path))
 
   let format = audioFile.processingFormat
-  let outputFormat = AVAudioFormat(standardFormatWithSampleRate: 24000, channels: 1)!
+  let outputFormat = AVAudioFormat(standardFormatWithSampleRate: Double(sampleRate), channels: 1)!
   guard let converter = AVAudioConverter(from: format, to: outputFormat) else {
     throw AudioError.createConverter
   }
-  let buffer = AVAudioPCMBuffer(
-    pcmFormat: outputFormat, frameCapacity: AVAudioFrameCount(audioFile.length))
-  try audioFile.read(into: buffer!)
+
+  let inputBuffer = AVAudioPCMBuffer(
+    pcmFormat: format,
+    frameCapacity: AVAudioFrameCount(audioFile.length)
+  )!
+  try audioFile.read(into: inputBuffer)
+
   let convertedBuffer = AVAudioPCMBuffer(
-    pcmFormat: outputFormat, frameCapacity: buffer!.frameCapacity)
-  try converter.convert(to: convertedBuffer!, from: buffer!)
+    pcmFormat: outputFormat,
+    frameCapacity: AVAudioFrameCount(sampleCount)
+  )!
 
-  let audioData = convertedBuffer!.floatChannelData![0]
-  let numberOfFrames = Int(convertedBuffer!.frameLength)
-
-  var rawAudioSamples: [Float] = []
-  for i in 0..<numberOfFrames {
-    rawAudioSamples.append(audioData[i])
+  var error: NSError?
+  let inputBlock: AVAudioConverterInputBlock = { _, outStatus in
+    outStatus.pointee = .haveData
+    return inputBuffer
   }
+
+  converter.convert(to: convertedBuffer, error: &error, withInputFrom: inputBlock)
+  if let error = error {
+    throw error
+  }
+
+  let audioData = convertedBuffer.floatChannelData![0]
+  let numberOfFrames = Int(convertedBuffer.frameLength)
+
+  var rawAudioSamples: [Float] = Array(UnsafeBufferPointer(start: audioData, count: numberOfFrames))
   while rawAudioSamples.count < sampleCount {
     rawAudioSamples.append(0)
   }
-  while rawAudioSamples.count > sampleCount {
-    rawAudioSamples.remove(at: rawAudioSamples.count - 1)
-  }
+  rawAudioSamples = Array(rawAudioSamples.prefix(sampleCount))
+
   return Tensor(data: rawAudioSamples, shape: [1, rawAudioSamples.count])
 }
 

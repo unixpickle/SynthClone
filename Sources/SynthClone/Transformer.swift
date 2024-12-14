@@ -235,49 +235,41 @@ class Transformer: Trainable {
     let kvCache = KVCache(batchSize: prefixes.shape[0], config: config)
     let config = config
     return AsyncStream { continuation in
-      let t = Task.detached {
-        var prevToken = prefixes
-        for _ in 0..<(config.TokenCount - prefixes.shape[1]) {
-          if Task.isCancelled {
-            return
+      var prevToken = prefixes
+      for _ in 0..<(config.TokenCount - prefixes.shape[1]) {
+        if Task.isCancelled {
+          return
+        }
+        let logits = Tensor.withGrad(enabled: false) {
+          // Without asDependency, we may allocate fp16 parameters many
+          // times at once since the internal cast() in the model doesn't
+          // depend on any other result tensors.
+          prevToken.asDependency {
+            self(prevToken, kvCache: kvCache)[..., -1].cast(.float32)
           }
-          let logits = Tensor.withGrad(enabled: false) {
-            // Without asDependency, we may allocate fp16 parameters many
-            // times at once since the internal cast() in the model doesn't
-            // depend on any other result tensors.
-            prevToken.asDependency {
-              self(prevToken, kvCache: kvCache)[..., -1].cast(.float32)
-            }
-          }
-          let guidedLogits =
-            if let cfgScale = cfgScale {
-              {
-                let pieces = logits.chunk(axis: 0, count: 2)
-                let cond = pieces[0]
-                let uncond = pieces[1]
-                return uncond + cfgScale * (cond - uncond)
-              }()
-            } else {
-              logits
-            }
-
-          let gumbels = -(-Tensor(randLike: guidedLogits, generator: generator).log()).log()
-          let samples = (guidedLogits + gumbels).argmax(axis: -1).unsqueeze(axis: 1)
-          if cfgScale == nil {
-            prevToken = samples
+        }
+        let guidedLogits =
+          if let cfgScale = cfgScale {
+            {
+              let pieces = logits.chunk(axis: 0, count: 2)
+              let cond = pieces[0]
+              let uncond = pieces[1]
+              return uncond + cfgScale * (cond - uncond)
+            }()
           } else {
-            prevToken = samples.repeating(axis: 0, count: 2)
+            logits
           }
 
-          continuation.yield(samples)
+        let gumbels = -(-Tensor(randLike: guidedLogits, generator: generator).log()).log()
+        let samples = (guidedLogits + gumbels).argmax(axis: -1).unsqueeze(axis: 1)
+        if cfgScale == nil {
+          prevToken = samples
+        } else {
+          prevToken = samples.repeating(axis: 0, count: 2)
         }
-        continuation.finish()
+        continuation.yield(samples)
       }
-      continuation.onTermination = { reason in
-        if case .cancelled = reason {
-          t.cancel()
-        }
-      }
+      continuation.finish()
     }
   }
 

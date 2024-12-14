@@ -136,15 +136,19 @@ class CaptionedSequenceDataLoader: Sequence, IteratorProtocol {
     _state = State(shardPaths: paths, currentShard: 0, offsetInShard: 0)
   }
 
-  func captionTensor(_ caption: String) -> Tensor {
-    var textTokens = [Int](repeating: 0, count: captionLength)
-    for (j, char) in caption.utf8.enumerated() {
-      if j >= captionLength {
-        break
+  var captionTensor: @Sendable (String) -> Tensor {
+    let captionLength = captionLength
+    let captionTokenOffset = captionTokenOffset
+    return { caption in
+      var textTokens = [Int](repeating: 0, count: captionLength)
+      for (j, char) in caption.utf8.enumerated() {
+        if j >= captionLength {
+          break
+        }
+        textTokens[j] = Int(char) + captionTokenOffset
       }
-      textTokens[j] = Int(char) + captionTokenOffset
+      return Tensor(data: textTokens, shape: [captionLength])
     }
-    return Tensor(data: textTokens, shape: [captionLength])
   }
 
   func next() -> Result<(Tensor, State), Error>? {

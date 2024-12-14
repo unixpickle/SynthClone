@@ -1,4 +1,4 @@
-// swift-tools-version: 5.10
+// swift-tools-version: 6.0
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
 import PackageDescription
@@ -10,7 +10,7 @@ let package = Package(
   ],
   products: [],
   dependencies: [
-    .package(url: "https://github.com/unixpickle/honeycrisp", from: "0.0.14"),
+    .package(url: "https://github.com/unixpickle/honeycrisp", from: "0.0.16"),
     .package(url: "https://github.com/apple/swift-argument-parser", from: "1.3.0"),
   ],
   targets: [

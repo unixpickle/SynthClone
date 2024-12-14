@@ -7,6 +7,7 @@ struct TrainAndEval<T> {
 }
 
 extension TrainAndEval: Codable where T: Codable {}
+extension TrainAndEval: Sendable where T: Sendable {}
 
 class CommandTransformer: Command {
 
@@ -47,8 +48,8 @@ class CommandTransformer: Command {
   var gradScale: Float = 65536.0
   var step: Int = 0
 
-  let dataLoader: TrainAndEval<CaptionedSequenceDataLoader>
   var dataStream: DataStream?
+  var captionTensor: (@Sendable (String) -> Tensor)?
   var lastDataState: TrainAndEval<CaptionedSequenceDataLoader.State>?
 
   override internal var flopCount: Int64 {
@@ -75,14 +76,6 @@ class CommandTransformer: Command {
         VocabSize: vqvae.bottleneck.vocab + 256, TokenCount: captionBytes + 16 * 16,
         WeightGradBackend: weightGradBackend))
     opt = Adam(model.parameters, lr: lr)
-    dataLoader = TrainAndEval(
-      train: try CaptionedSequenceDataLoader(
-        batchSize: bs, dropProb: cfgProb, captionLength: captionBytes,
-        captionTokenOffset: vqvae.bottleneck.vocab, shardDir: dataDir),
-      eval: try CaptionedSequenceDataLoader(
-        batchSize: bs, dropProb: cfgProb, captionLength: captionBytes,
-        captionTokenOffset: vqvae.bottleneck.vocab, shardDir: dataDir, isEval: true)
-    )
   }
 
   override public func run() async throws {
@@ -95,6 +88,16 @@ class CommandTransformer: Command {
   }
 
   private func prepare() async throws {
+    let dataLoader = TrainAndEval(
+      train: try CaptionedSequenceDataLoader(
+        batchSize: bs, dropProb: cfgProb, captionLength: captionBytes,
+        captionTokenOffset: vqvae.bottleneck.vocab, shardDir: dataDir),
+      eval: try CaptionedSequenceDataLoader(
+        batchSize: bs, dropProb: cfgProb, captionLength: captionBytes,
+        captionTokenOffset: vqvae.bottleneck.vocab, shardDir: dataDir, isEval: true)
+    )
+    self.captionTensor = dataLoader.train.captionTensor
+
     print("loading VQVAE from checkpoint: \(vqPath) ...")
     let data = try Data(contentsOf: URL(fileURLWithPath: vqPath))
     let decoder = PropertyListDecoder()
@@ -134,11 +137,11 @@ class CommandTransformer: Command {
         }
       }
     }
-    dataStream = loadDataInBackground(it)
+    dataStream = loadDataInBackgroundSending(it)
   }
 
   private func captionTensor(_ captions: [String]) -> Tensor {
-    Tensor(stack: captions.map { dataLoader.train.captionTensor($0) })
+    Tensor(stack: captions.map(captionTensor!))
   }
 
   private func takeDataset(_ n: Int) -> AsyncPrefixSequence<DataStream> {

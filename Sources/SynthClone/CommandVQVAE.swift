@@ -23,7 +23,6 @@ class CommandVQVAE: Command {
   let model: VQVAE
   let opt: Adam
   var step: Int = 0
-  let dataLoader: AudioDataLoader
   var dataStream: AsyncThrowingStream<(Tensor, AudioDataLoader.State), Error>?
 
   init(_ args: [String]) throws {
@@ -38,8 +37,6 @@ class CommandVQVAE: Command {
 
     model = VQVAE(channels: 1, vocab: 16384, latentChannels: 4, downsamples: 10)
     opt = Adam(model.parameters, lr: lr)
-    dataLoader = AudioDataLoader(
-      batchSize: bs, audios: try AudioIterator(audioDir: audioDir, sampleCount: sampleCount))
   }
 
   override public func run() async throws {
@@ -53,6 +50,8 @@ class CommandVQVAE: Command {
   }
 
   private func prepare() async throws {
+    let dataLoader = AudioDataLoader(
+      batchSize: bs, audios: try AudioIterator(audioDir: audioDir, sampleCount: sampleCount))
     if FileManager.default.fileExists(atPath: savePath) {
       print("loading from checkpoint: \(savePath) ...")
       let data = try Data(contentsOf: URL(fileURLWithPath: savePath))
@@ -67,8 +66,7 @@ class CommandVQVAE: Command {
       }
       step = state.step
     }
-
-    dataStream = loadDataInBackground(dataLoader)
+    dataStream = loadDataInBackgroundSending(dataLoader)
   }
 
   private func takeDataset(_ n: Int) -> AsyncPrefixSequence<

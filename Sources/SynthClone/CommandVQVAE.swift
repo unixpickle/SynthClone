@@ -15,8 +15,10 @@ class CommandVQVAE: Command {
   let lr: Float = 0.0001
   let bs = 2
   let reviveInterval = 100
-  let reviveBatches = 2
-  let commitCoeff = 0.05
+  let reviveBatches = 4
+  let commitCoeff = 0.005
+  let inputNoise = 0.0001
+  let huberThreshold = 0.01
 
   let savePath: String
   let samplePath: String
@@ -99,9 +101,10 @@ class CommandVQVAE: Command {
   private func trainInnerLoop() async throws {
     print("training...")
     for try await (batch, _) in takeDataset(reviveInterval) {
+      let batch = batch + Tensor(randnLike: batch) * inputNoise
       step += 1
       let (output, vqLosses) = model(batch)
-      let loss = (output - batch).pow(2).mean()
+      let loss = huberLoss(output, batch).mean()
       (loss + vqLosses.codebookLoss + commitCoeff * vqLosses.commitmentLoss).backward()
       opt.step()
       opt.clearGrads()
@@ -135,6 +138,12 @@ class CommandVQVAE: Command {
     )
     let stateData = try PropertyListEncoder().encode(state)
     try stateData.write(to: URL(filePath: savePath), options: .atomic)
+  }
+
+  private func huberLoss(_ x: Tensor, _ y: Tensor) -> Tensor {
+    let err = (x - y)
+    let a = err.abs()
+    return (a < huberThreshold).when(isTrue: 0.5 * err.pow(2), isFalse: huberThreshold * (a - 0.5 * huberThreshold))
   }
 
 }

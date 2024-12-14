@@ -23,7 +23,8 @@ func loadAudio(path: String, sampleCount: Int, sampleRate: Int = 24000) throws -
 
   let convertedBuffer = AVAudioPCMBuffer(
     pcmFormat: outputFormat,
-    frameCapacity: AVAudioFrameCount(sampleCount)
+    frameCapacity: AVAudioFrameCount(
+      UInt32(Double(audioFile.length) * Double(sampleRate) / format.sampleRate))
   )!
 
   var error: NSError?
@@ -70,9 +71,12 @@ func tensorToAudio(tensor: Tensor, sampleRate: Int = 24000) async throws -> Data
     try? FileManager.default.removeItem(at: tempFileURL)
   }
 
-  let audioFile = try AVAudioFile(forWriting: tempFileURL, settings: audioFormat.settings)
-  try audioFile.write(from: audioBuffer)
-  let audioDataAsData = try Data(contentsOf: tempFileURL)
+  // Use a scope to make sure file is closed and header
+  // is written before re-reading.
+  try {
+    let audioFile = try AVAudioFile(forWriting: tempFileURL, settings: audioFormat.settings)
+    try audioFile.write(from: audioBuffer)
+  }()
 
-  return audioDataAsData
+  return try Data(contentsOf: tempFileURL)
 }

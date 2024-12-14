@@ -14,14 +14,20 @@ class AudioIterator: Sequence, IteratorProtocol {
 
   public var state: State
 
-  init(audioDir dirPath: String, sampleCount: Int) throws {
+  init(audioDir dirPath: String, sampleCount: Int, quick: Bool = true) throws {
     var paths = [String]()
     let fileManager = FileManager.default
     let directoryURL = URL(fileURLWithPath: dirPath, isDirectory: true)
-    let contents = try fileManager.contentsOfDirectory(
-      at: directoryURL, includingPropertiesForKeys: nil, options: [])
-    for fileURL in contents {
-      paths.append(fileURL.path())
+    if quick {
+      for i in 0..<1_000_000 {
+        paths.append(directoryURL.appending(component: "line_\(i).aiff").path())
+      }
+    } else {
+      let contents = try fileManager.contentsOfDirectory(
+        at: directoryURL, includingPropertiesForKeys: nil, options: [])
+      for fileURL in contents {
+        paths.append(fileURL.path())
+      }
     }
     self.state = State(sampleCount: sampleCount, audioPaths: paths)
   }
@@ -30,7 +36,7 @@ class AudioIterator: Sequence, IteratorProtocol {
     while state.audioPaths.count > 0 {
       state.offset = state.offset % state.audioPaths.count
       guard
-        let image = try? loadAudio(
+        let audio = try? loadAudio(
           path: state.audioPaths[state.offset], sampleCount: state.sampleCount)
       else {
         state.audioPaths.remove(at: state.offset)
@@ -38,7 +44,7 @@ class AudioIterator: Sequence, IteratorProtocol {
       }
       let path = state.audioPaths[state.offset]
       state.offset += 1
-      return (path, image, state)
+      return (path, audio, state)
     }
     return nil
   }

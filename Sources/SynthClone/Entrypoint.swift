@@ -30,7 +30,7 @@ struct Main {
   static func printHelp() {
     print("Usage: SynthClone <subcommand> ...")
     print("Subcommands:")
-    print("    vqvae <data_dir> <state_path>")
+    print("    vqvae <data_dir> <sample_path> <state_path>")
     print("    tokenize <data_dir> <vqvae_path> <tok_dir>")
     print("    transformer <tok_dir> <vqvae_path> <state_path>")
   }

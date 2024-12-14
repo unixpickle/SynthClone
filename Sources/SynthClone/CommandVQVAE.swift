@@ -13,12 +13,13 @@ class CommandVQVAE: Command {
   let sampleCount: Int = 1024 * 24 * 10
 
   let lr: Float = 0.0001
-  let bs = 8
+  let bs = 2
   let reviveInterval = 100
   let reviveBatches = 2
-  let commitCoeff = 0.5
+  let commitCoeff = 0.05
 
   let savePath: String
+  let samplePath: String
   let audioDir: String
   let model: VQVAE
   let opt: Adam
@@ -28,13 +29,15 @@ class CommandVQVAE: Command {
   init(_ args: [String]) throws {
     Backend.defaultBackend = try MPSBackend(allocator: .bucket)
 
-    if args.count != 2 {
-      print("Usage: ... vqvae <audio_dir> <save_path>")
+    if args.count != 3 {
+      print("Usage: ... vqvae <audio_dir> <sample_path> <save_path>")
       throw ArgumentError.invalidArgs
     }
     audioDir = args[0]
-    savePath = args[1]
+    samplePath = args[1]
+    savePath = args[2]
 
+    print("creating model and optimizer...")
     model = VQVAE(channels: 1, vocab: 16384, latentChannels: 4, downsamples: 10)
     opt = Adam(model.parameters, lr: lr)
   }
@@ -50,6 +53,7 @@ class CommandVQVAE: Command {
   }
 
   private func prepare() async throws {
+    print("creating data loader...")
     let dataLoader = AudioDataLoader(
       batchSize: bs, audios: try AudioIterator(audioDir: audioDir, sampleCount: sampleCount))
     if FileManager.default.fileExists(atPath: savePath) {
@@ -110,7 +114,7 @@ class CommandVQVAE: Command {
   }
 
   private func sampleAndSave() async throws {
-    print("dumping samples to: samples.aiff ...")
+    print("dumping samples to: \(samplePath) ...")
     var it = dataStream!.makeAsyncIterator()
     let (input, dataState) = try await it.next()!
     let (output, _) = Tensor.withGrad(enabled: false) {
@@ -120,7 +124,7 @@ class CommandVQVAE: Command {
     }
     let audios = Tensor(concat: [input, output], axis: -1)
     let data = try await tensorToAudio(tensor: audios.move(axis: 1, to: -1).flatten(endAxis: 1))
-    try data.write(to: URL(filePath: "samples.aiff"))
+    try data.write(to: URL(filePath: samplePath))
 
     print("saving to \(savePath) ...")
     let state = State(

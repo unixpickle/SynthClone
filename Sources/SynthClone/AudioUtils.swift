@@ -4,6 +4,7 @@ import Honeycrisp
 enum AudioError: Error {
   case createConverter
   case createPCMBuffer
+  case emptyAudio
 }
 
 func loadAudio(path: String, sampleCount: Int, sampleRate: Int = 24000) throws -> Tensor {
@@ -47,11 +48,15 @@ func loadAudio(path: String, sampleCount: Int, sampleRate: Int = 24000) throws -
   }
   rawAudioSamples = Array(rawAudioSamples.prefix(sampleCount))
 
-  return Tensor(data: rawAudioSamples, shape: [1, rawAudioSamples.count])
+  if (rawAudioSamples.max() ?? 0) == 0 {
+    throw AudioError.emptyAudio
+  }
+
+  return compressMlaw(pcm: Tensor(data: rawAudioSamples, shape: [1, rawAudioSamples.count]))
 }
 
 func tensorToAudio(tensor: Tensor, sampleRate: Int = 24000) async throws -> Data {
-  let rawAudioSamples = try await tensor.floats()
+  let rawAudioSamples = try await invertMlaw(mlaw: tensor).floats()
 
   let audioFormat = AVAudioFormat(standardFormatWithSampleRate: Double(sampleRate), channels: 1)!
   let frameCount = AVAudioFrameCount(rawAudioSamples.count)
@@ -79,4 +84,18 @@ func tensorToAudio(tensor: Tensor, sampleRate: Int = 24000) async throws -> Data
   }()
 
   return try Data(contentsOf: tempFileURL)
+}
+
+private func compressMlaw(pcm: Tensor) -> Tensor {
+  let sign = (pcm > 0).when(isTrue: Tensor(onesLike: pcm), isFalse: -1.0)
+  let abs = pcm.abs()
+  // 5.5451774445 = ln(1 + 255)
+  return sign * (1 + 255 * abs).log() / 5.5451774445
+}
+
+private func invertMlaw(mlaw: Tensor) -> Tensor {
+  let sign = (mlaw > 0).when(isTrue: Tensor(onesLike: mlaw), isFalse: -1.0)
+  let abs = mlaw.abs()
+  // 5.5451774445 = ln(1 + 255)
+  return sign * ((5.5451774445 * abs).exp() - 1) / 255
 }

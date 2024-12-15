@@ -66,12 +66,17 @@ class CommandTokenize: Command {
     print("listing image filenames...")
     var shards: [Int: [(URL, URL)]] = [:]
     let fileManager = FileManager.default
-    let contents = try fileManager.contentsOfDirectory(
-      at: audioDir, includingPropertiesForKeys: nil, options: [])
+    var contents = try fileManager.contentsOfDirectory(
+      at: audioDir,
+      includingPropertiesForKeys: nil,
+      options: []
+    )
+    contents.shuffle()
     var count = 0
     for audioURL in contents {
-      let idxStr = String(audioURL.lastPathComponent.split(separator: ".").first!)
-      let textURL = captionDir.appending(component: "\(idxStr).txt")
+      let idxStr = String(
+        audioURL.lastPathComponent.split(separator: ".").first!.split(separator: "_").last!)
+      let textURL = captionDir.appending(component: "line_\(idxStr).txt")
       let shard = (Int(idxStr)! % 0x100)
       if shards[shard] == nil {
         shards[shard] = []

@@ -29,6 +29,7 @@ class AudioIterator: Sequence, IteratorProtocol {
         paths.append(fileURL.path())
       }
     }
+    paths.shuffle()
     self.state = State(sampleCount: sampleCount, audioPaths: paths)
   }
 

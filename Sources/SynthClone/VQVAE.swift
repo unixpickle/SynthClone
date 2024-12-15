@@ -145,15 +145,15 @@ class VQBottleneck: Trainable {
 
   let vocab: Int
   let channels: Int
-  var usageCounter: Tensor
 
+  @Buf var usageCounter: Tensor
   @Param var dictionary: Tensor
 
   init(vocab: Int, channels: Int) {
     self.vocab = vocab
     self.channels = channels
-    self.usageCounter = Tensor(zeros: [vocab], dtype: .int64)
     super.init()
+    self.usageCounter = Tensor(zeros: [vocab], dtype: .int64)
     self.dictionary = Tensor(randn: [vocab, channels])
   }
 

@@ -10,13 +10,13 @@ class CommandVQVAE: Command {
     let opt: Adam.State?
   }
 
-  let sampleCount: Int = 1024 * 24 * 10
+  let sampleCount: Int = 1024 * 24 * 5
 
   let lr: Float = 0.0001
   let bs = 2
   let reviveInterval = 100
   let reviveBatches = 4
-  let commitCoeff = 0.005
+  let commitCoeff = 0.01
   let inputNoise = 0.0001
   let huberThreshold = 0.001
 

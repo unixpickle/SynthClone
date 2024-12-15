@@ -15,7 +15,7 @@ class CommandTokenize: Command {
   }
 
   let batchSize = 8
-  let sampleCount = 1024 * 24 * 10
+  let sampleCount = 1024 * 24 * 5
 
   let audioDir: URL
   let captionDir: URL

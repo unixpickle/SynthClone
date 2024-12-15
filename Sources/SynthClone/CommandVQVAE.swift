@@ -15,7 +15,7 @@ class CommandVQVAE: Command {
   let lr: Float = 0.0001
   let bs = 2
   let reviveInterval = 100
-  let reviveBatches = 4
+  let reviveBatches = 16
   let commitCoeff = 0.01
   let inputNoise = 0.0001
   let huberThreshold = 0.001

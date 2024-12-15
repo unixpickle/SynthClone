@@ -18,7 +18,7 @@ class CommandVQVAE: Command {
   let reviveBatches = 4
   let commitCoeff = 0.005
   let inputNoise = 0.0001
-  let huberThreshold = 0.01
+  let huberThreshold = 0.001
 
   let savePath: String
   let samplePath: String
@@ -119,7 +119,8 @@ class CommandVQVAE: Command {
   private func sampleAndSave() async throws {
     print("dumping samples to: \(samplePath) ...")
     var it = dataStream!.makeAsyncIterator()
-    let (input, dataState) = try await it.next()!
+    let (inputRaw, dataState) = try await it.next()!
+    let input = inputRaw + Tensor(randnLike: inputRaw) * inputNoise
     let (output, _) = Tensor.withGrad(enabled: false) {
       model.withMode(.inference) {
         model(input)
@@ -143,7 +144,8 @@ class CommandVQVAE: Command {
   private func huberLoss(_ x: Tensor, _ y: Tensor) -> Tensor {
     let err = (x - y)
     let a = err.abs()
-    return (a < huberThreshold).when(isTrue: 0.5 * err.pow(2), isFalse: huberThreshold * (a - 0.5 * huberThreshold))
+    return (a < huberThreshold).when(
+      isTrue: 0.5 * err.pow(2), isFalse: huberThreshold * (a - 0.5 * huberThreshold))
   }
 
 }

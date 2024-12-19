@@ -7,6 +7,7 @@ class FlowLayer: Trainable {
 
   @Child var condConv: Conv1D
   @Child var conv1: Conv1D
+  @Child var norm: GroupNorm
   @Child var conv2: Conv1D
 
   init(isEven: Bool, condChannels: Int, hiddenChannels: Int) {
@@ -17,6 +18,7 @@ class FlowLayer: Trainable {
       padding: .allSides(1))
     conv1 = Conv1D(
       inChannels: 1, outChannels: hiddenChannels, kernelSize: 3, stride: 1, padding: .same)
+    norm = GroupNorm(groupCount: 32, channelCount: hiddenChannels)
     conv2 = Conv1D(
       inChannels: hiddenChannels, outChannels: 2, kernelSize: 3, stride: 1, padding: .same)
     for (_, var p) in conv2.parameters {
@@ -49,18 +51,11 @@ class FlowLayer: Trainable {
         (split[1], split[0])
       }
 
-    let scaleAndBias = conv2((conv1(inputs) + condConv(cond)).gelu()).chunk(axis: 1, count: 2)
+    let scaleAndBias = conv2(norm((conv1(inputs) + condConv(cond)).gelu())).chunk(axis: 1, count: 2)
     let (scaleParams, bias) = (scaleAndBias[0], scaleAndBias[1])
 
-    // Scale is 1 when input is 0, and we can never get too small
-    // or too large--constrained to [1/max, max], and we never saturate gradients.
-    // The biggest benefit, compared to exp(), is we are much less likely
-    // to accidentally explode the activations.
-    let maximum = 2.0
-    let a = (maximum - 1 / maximum) / 2
-    let b = (maximum + 1 / maximum) / 2
-    let scale = (scaleParams + asin((1 - b) / a)).sin() * a + b
-    let logScale = scale.log()
+    let logScale = scaleParams.atan()
+    let scale = logScale.exp()
 
     let modified =
       if invert {
@@ -83,7 +78,7 @@ class FlowLayer: Trainable {
 class FlowModel: Trainable {
   @Child var layers: TrainableArray<FlowLayer>
 
-  init(condChannels: Int, layerCount: Int = 6, hiddenChannels: Int = 64) {
+  init(condChannels: Int, layerCount: Int = 10, hiddenChannels: Int = 64) {
     super.init()
     layers = TrainableArray(
       (0..<layerCount).map { i in

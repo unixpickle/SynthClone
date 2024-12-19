@@ -48,21 +48,35 @@ class FlowLayer: Trainable {
       } else {
         (split[1], split[0])
       }
+
     let scaleAndBias = conv2((conv1(inputs) + condConv(cond)).gelu()).chunk(axis: 1, count: 2)
-    let (scale, bias) = (scaleAndBias[0], scaleAndBias[1])
-    let outputs =
+    let (scaleParams, bias) = (scaleAndBias[0], scaleAndBias[1])
+
+    // Scale is 1 when input is 0, and we can never get too small
+    // or too large--constrained to [1/max, max], and we never saturate gradients.
+    // The biggest benefit, compared to exp(), is we are much less likely
+    // to accidentally explode the activations.
+    let maximum = 2.0
+    let a = (maximum - 1 / maximum) / 2
+    let b = (maximum + 1 / maximum) / 2
+    let scale = (scaleParams + asin((1 - b) / a)).sin() * a + b
+    let logScale = scale.log()
+
+    let modified =
       if invert {
-        (toModify - bias) / scale.exp()
+        (toModify - bias) / scale
       } else {
-        toModify.mul(scale.exp(), thenAdd: bias)
+        toModify.mul(scale, thenAdd: bias)
       }
+
     let combinedOut =
       if isEven {
-        Tensor(stack: [inputs, outputs], axis: -1).flatten(startAxis: -2)
+        Tensor(stack: [inputs, modified], axis: -1).flatten(startAxis: -2)
       } else {
-        Tensor(stack: [outputs, inputs], axis: -1).flatten(startAxis: -2)
+        Tensor(stack: [modified, inputs], axis: -1).flatten(startAxis: -2)
       }
-    return (out: combinedOut, logScale: scale.sum(axis: -1).squeeze(axis: 1))
+
+    return (out: combinedOut, logScale: logScale.sum(axis: -1).squeeze(axis: 1))
   }
 }
 

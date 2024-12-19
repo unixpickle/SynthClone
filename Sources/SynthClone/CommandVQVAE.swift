@@ -16,9 +16,8 @@ class CommandVQVAE: Command {
   let bs = 2
   let reviveInterval = 500
   let reviveBatches = 16
-  let commitCoeff = 0.1
+  let commitCoeff = 1.0
   let inputNoise = 0.0001
-  let huberThreshold = 0.025
 
   let savePath: String
   let samplePath: String

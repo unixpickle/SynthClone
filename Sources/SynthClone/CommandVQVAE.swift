@@ -103,16 +103,14 @@ class CommandVQVAE: Command {
     for try await (batch, _) in takeDataset(reviveInterval) {
       let batch = batch + Tensor(randnLike: batch) * inputNoise
       step += 1
-      let (output, vqLosses) = model(batch)
-      let (losses, clipFrac) = huberLoss(output, batch)
-      let loss = losses.mean()
+      let (nll, vqLosses) = model(batch)
+      let loss = nll.mean()
       (loss + vqLosses.codebookLoss + commitCoeff * vqLosses.commitmentLoss).backward()
       opt.step()
       opt.clearGrads()
       print(
         "step \(step):"
           + " loss=\(try await loss.item())"
-          + " loss_clip_frac=\(try await clipFrac.item())"
           + " commitment=\(try await vqLosses.commitmentLoss.item())"
           + " gflops=\(gflops)")
     }
@@ -123,9 +121,9 @@ class CommandVQVAE: Command {
     var it = dataStream!.makeAsyncIterator()
     let (inputRaw, dataState) = try await it.next()!
     let input = inputRaw + Tensor(randnLike: inputRaw) * inputNoise
-    let (output, _) = Tensor.withGrad(enabled: false) {
+    let output = Tensor.withGrad(enabled: false) {
       model.withMode(.inference) {
-        model(input)
+        model.sampleReconstruction(input)
       }
     }
     let audios = Tensor(concat: [input, output], axis: -1)
@@ -141,17 +139,6 @@ class CommandVQVAE: Command {
     )
     let stateData = try PropertyListEncoder().encode(state)
     try stateData.write(to: URL(filePath: savePath), options: .atomic)
-  }
-
-  private func huberLoss(_ x: Tensor, _ y: Tensor) -> (loss: Tensor, clipFrac: Tensor) {
-    let err = (x - y)
-    let a = err.abs()
-    let thresh = (a > huberThreshold)
-    return (
-      loss: thresh.when(
-        isTrue: huberThreshold * (a - 0.5 * huberThreshold), isFalse: 0.5 * err.pow(2)),
-      clipFrac: thresh.cast(.float32).mean()
-    )
   }
 
 }

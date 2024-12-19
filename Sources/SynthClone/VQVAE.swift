@@ -221,23 +221,35 @@ class VQVAE: Trainable {
   @Child var encoder: VQEncoder
   @Child var bottleneck: VQBottleneck
   @Child var decoder: VQDecoder
+  @Child var outFlow: FlowModel
 
-  init(channels: Int, vocab: Int, latentChannels: Int, downsamples: Int) {
+  init(channels: Int, vocab: Int, latentChannels: Int, downsamples: Int, condChannels: Int = 4) {
     super.init()
     self.encoder = VQEncoder(
       inChannels: channels, outChannels: latentChannels, downsamples: downsamples)
     self.bottleneck = VQBottleneck(vocab: vocab, channels: latentChannels)
     self.decoder = VQDecoder(
-      inChannels: latentChannels, outChannels: channels, upsamples: downsamples)
+      inChannels: latentChannels, outChannels: condChannels, upsamples: downsamples)
+    self.outFlow = FlowModel(condChannels: condChannels)
   }
 
-  func callAsFunction(_ x: Tensor) -> (Tensor, VQBottleneck.Losses) {
+  func callAsFunction(_ x: Tensor) -> (nll: Tensor, vqLosses: VQBottleneck.Losses) {
     var h = x
     h = encoder(h)
     let vqOut = bottleneck(h)
     h = vqOut.straightThrough
     h = decoder(h)
-    return (h * 0.1, vqOut.losses)
+    let nll = outFlow.negativeLogLikelihood(sample: x, cond: h)
+    return (nll: nll / x.shape[2], vqLosses: vqOut.losses)
+  }
+
+  func sampleReconstruction(_ x: Tensor) -> Tensor {
+    var h = x
+    h = encoder(h)
+    let vqOut = bottleneck(h)
+    h = vqOut.straightThrough
+    h = decoder(h)
+    return outFlow.noiseToSample(cond: h)
   }
 
   func features(_ x: Tensor) -> Tensor {

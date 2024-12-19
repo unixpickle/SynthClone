@@ -237,7 +237,7 @@ class VQVAE: Trainable {
     let vqOut = bottleneck(h)
     h = vqOut.straightThrough
     h = decoder(h)
-    return (h, vqOut.losses)
+    return (h * 0.1, vqOut.losses)
   }
 
   func features(_ x: Tensor) -> Tensor {

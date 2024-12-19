@@ -12,13 +12,13 @@ class CommandVQVAE: Command {
 
   let sampleCount: Int = 1024 * 24 * 5
 
-  let lr: Float = 0.0001
+  let lr: Float = 0.00003
   let bs = 2
-  let reviveInterval = 100
+  let reviveInterval = 500
   let reviveBatches = 16
-  let commitCoeff = 0.01
+  let commitCoeff = 0.1
   let inputNoise = 0.0001
-  let huberThreshold = 0.001
+  let huberThreshold = 0.025
 
   let savePath: String
   let samplePath: String
@@ -40,7 +40,7 @@ class CommandVQVAE: Command {
     savePath = args[2]
 
     print("creating model and optimizer...")
-    model = VQVAE(channels: 1, vocab: 16384, latentChannels: 4, downsamples: 10)
+    model = VQVAE(channels: 1, vocab: 16384, latentChannels: 4, downsamples: 8)
     opt = Adam(model.parameters, lr: lr)
   }
 
@@ -104,13 +104,15 @@ class CommandVQVAE: Command {
       let batch = batch + Tensor(randnLike: batch) * inputNoise
       step += 1
       let (output, vqLosses) = model(batch)
-      let loss = huberLoss(output, batch).mean()
+      let (losses, clipFrac) = huberLoss(output, batch)
+      let loss = losses.mean()
       (loss + vqLosses.codebookLoss + commitCoeff * vqLosses.commitmentLoss).backward()
       opt.step()
       opt.clearGrads()
       print(
         "step \(step):"
           + " loss=\(try await loss.item())"
+          + " loss_clip_frac=\(try await clipFrac.item())"
           + " commitment=\(try await vqLosses.commitmentLoss.item())"
           + " gflops=\(gflops)")
     }
@@ -141,11 +143,15 @@ class CommandVQVAE: Command {
     try stateData.write(to: URL(filePath: savePath), options: .atomic)
   }
 
-  private func huberLoss(_ x: Tensor, _ y: Tensor) -> Tensor {
+  private func huberLoss(_ x: Tensor, _ y: Tensor) -> (loss: Tensor, clipFrac: Tensor) {
     let err = (x - y)
     let a = err.abs()
-    return (a < huberThreshold).when(
-      isTrue: 0.5 * err.pow(2), isFalse: huberThreshold * (a - 0.5 * huberThreshold))
+    let thresh = (a > huberThreshold)
+    return (
+      loss: thresh.when(
+        isTrue: huberThreshold * (a - 0.5 * huberThreshold), isFalse: 0.5 * err.pow(2)),
+      clipFrac: thresh.cast(.float32).mean()
+    )
   }
 
 }

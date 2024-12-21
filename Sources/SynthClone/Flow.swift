@@ -25,7 +25,7 @@ class FlowLayer: Trainable {
     conv3 = Conv1D(
       inChannels: hiddenChannels, outChannels: 2, kernelSize: 3, stride: 1, padding: .same)
     norm = GroupNorm(groupCount: 32, channelCount: hiddenChannels)
-    for (_, var p) in conv2.parameters {
+    for (_, var p) in conv3.parameters {
       p.data! = Tensor(zerosLike: p.data!)
     }
   }

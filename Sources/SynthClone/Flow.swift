@@ -7,8 +7,9 @@ class FlowLayer: Trainable {
 
   @Child var condConv: Conv1D
   @Child var conv1: Conv1D
-  @Child var norm: GroupNorm
   @Child var conv2: Conv1D
+  @Child var conv3: Conv1D
+  @Child var norm: GroupNorm
 
   init(isEven: Bool, condChannels: Int, hiddenChannels: Int) {
     self.isEven = isEven
@@ -18,9 +19,12 @@ class FlowLayer: Trainable {
       padding: .allSides(1))
     conv1 = Conv1D(
       inChannels: 1, outChannels: hiddenChannels, kernelSize: 3, stride: 1, padding: .same)
-    norm = GroupNorm(groupCount: 32, channelCount: hiddenChannels)
     conv2 = Conv1D(
+      inChannels: hiddenChannels, outChannels: hiddenChannels, kernelSize: 3, stride: 1,
+      padding: .same)
+    conv3 = Conv1D(
       inChannels: hiddenChannels, outChannels: 2, kernelSize: 3, stride: 1, padding: .same)
+    norm = GroupNorm(groupCount: 32, channelCount: hiddenChannels)
     for (_, var p) in conv2.parameters {
       p.data! = Tensor(zerosLike: p.data!)
     }
@@ -51,7 +55,13 @@ class FlowLayer: Trainable {
         (split[1], split[0])
       }
 
-    let scaleAndBias = conv2(norm((conv1(inputs) + condConv(cond)).gelu())).chunk(axis: 1, count: 2)
+    var h = conv1(inputs) + condConv(cond)
+    h = norm(h)
+    h = h.relu()
+    h = conv2(h)
+    h = h.relu()
+    h = conv3(h)
+    let scaleAndBias = h.chunk(axis: 1, count: 2)
     let (scaleParams, bias) = (scaleAndBias[0], scaleAndBias[1])
 
     let logScale = scaleParams.atan()

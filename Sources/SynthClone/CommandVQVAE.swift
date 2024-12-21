@@ -18,6 +18,7 @@ class CommandVQVAE: Command {
   let reviveBatches = 16
   let commitCoeff = 1.0
   let inputNoise = 0.0001
+  let maxGradNorm = 10.0
 
   let savePath: String
   let samplePath: String
@@ -105,12 +106,14 @@ class CommandVQVAE: Command {
       let (nll, vqLosses) = model(batch)
       let loss = nll.mean()
       (loss + vqLosses.codebookLoss + commitCoeff * vqLosses.commitmentLoss).backward()
+      let gradNorm = clipGradients(model: model, threshold: maxGradNorm)
       opt.step()
       opt.clearGrads()
       print(
         "step \(step):"
           + " loss=\(try await loss.item())"
           + " commitment=\(try await vqLosses.commitmentLoss.item())"
+          + " grad_norm=\(try await gradNorm.item())"
           + " gflops=\(gflops)")
     }
   }

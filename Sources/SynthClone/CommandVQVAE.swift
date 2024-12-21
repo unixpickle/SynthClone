@@ -8,6 +8,7 @@ class CommandVQVAE: Command {
     let model: Trainable.State
     let dataset: AudioDataLoader.State?
     let opt: Adam.State?
+    let clipper: GradClipper.State?
   }
 
   let sampleCount: Int = 1024 * 24 * 5
@@ -25,6 +26,7 @@ class CommandVQVAE: Command {
   let audioDir: String
   let model: VQVAE
   let opt: Adam
+  let clipper: GradClipper
   var step: Int = 0
   var dataStream: AsyncThrowingStream<(Tensor, AudioDataLoader.State), Error>?
 
@@ -42,6 +44,7 @@ class CommandVQVAE: Command {
     print("creating model and optimizer...")
     model = VQVAE(channels: 1, vocab: 16384, latentChannels: 4, downsamples: 8)
     opt = Adam(model.parameters, lr: lr)
+    clipper = GradClipper()
   }
 
   override public func run() async throws {
@@ -69,6 +72,9 @@ class CommandVQVAE: Command {
       }
       if let dataState = state.dataset {
         dataLoader.state = dataState
+      }
+      if let clipState = state.clipper {
+        clipper.state = clipState
       }
       step = state.step
     }
@@ -106,14 +112,15 @@ class CommandVQVAE: Command {
       let (nll, vqLosses) = model(batch)
       let loss = nll.mean()
       (loss + vqLosses.codebookLoss + commitCoeff * vqLosses.commitmentLoss).backward()
-      let gradNorm = clipGradients(model: model, threshold: maxGradNorm)
+      let (gradNorm, clipScale) = try await clipper.clipGrads(model: model)
       opt.step()
       opt.clearGrads()
       print(
         "step \(step):"
           + " loss=\(try await loss.item())"
           + " commitment=\(try await vqLosses.commitmentLoss.item())"
-          + " grad_norm=\(try await gradNorm.item())"
+          + " grad_norm=\(gradNorm)"
+          + " grad_scale=\(clipScale)"
           + " gflops=\(gflops)")
     }
   }
@@ -137,7 +144,8 @@ class CommandVQVAE: Command {
       step: step,
       model: try await model.state(),
       dataset: dataState,
-      opt: try await opt.state()
+      opt: try await opt.state(),
+      clipper: clipper.state
     )
     let stateData = try PropertyListEncoder().encode(state)
     try stateData.write(to: URL(filePath: savePath), options: .atomic)

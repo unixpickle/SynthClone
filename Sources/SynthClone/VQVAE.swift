@@ -8,7 +8,6 @@ class DownsampleBlock: Trainable {
 
   init(inChannels: Int, outChannels: Int) {
     super.init()
-    self.norm = GroupNorm(groupCount: 32, channelCount: inChannels)
     self.conv1 = Conv1D(
       inChannels: inChannels, outChannels: outChannels, kernelSize: 3, padding: .same)
     self.conv2 = Conv1D(
@@ -19,11 +18,11 @@ class DownsampleBlock: Trainable {
   }
 
   func callAsFunction(_ x: Tensor) -> Tensor {
-    var h = norm(x)
+    var h = x // norm(x)
     h = conv1(h)
-    h = h.gelu()
-    h = conv2(h)
-    h = h + skip(x)
+    //h = h.gelu()
+    //h = conv2(h)
+    //h = h + skip(x)
     return h
   }
 }
@@ -36,7 +35,7 @@ class UpsampleBlock: Trainable {
 
   init(inChannels: Int, outChannels: Int) {
     super.init()
-    self.norm = GroupNorm(groupCount: 32, channelCount: inChannels)
+    //self.norm = GroupNorm(groupCount: 32, channelCount: inChannels)
     self.conv1 = Conv1D(
       inChannels: inChannels, outChannels: outChannels, kernelSize: 3, padding: .same)
     self.conv2 = Conv1D(
@@ -67,17 +66,17 @@ class VQEncoder: Trainable {
   init(inChannels: Int, outChannels: Int, downsamples: Int, maxChannels: Int = 256) {
     super.init()
     self.inProj = Conv1D(
-      inChannels: inChannels, outChannels: 64, kernelSize: 3, padding: .same)
+      inChannels: inChannels, outChannels: 4, kernelSize: 3, padding: .same)
 
     var blockArr = [DownsampleBlock]()
-    var ch = 64
+    var ch = 4
     for _ in 0..<downsamples {
       blockArr.append(
         DownsampleBlock(inChannels: min(maxChannels, ch), outChannels: min(maxChannels, ch * 2)))
       ch *= 2
     }
     self.blocks = TrainableArray(blockArr)
-    self.outNorm = GroupNorm(groupCount: 32, channelCount: min(maxChannels, ch))
+    //self.outNorm = GroupNorm(groupCount: 32, channelCount: min(maxChannels, ch))
     self.outProj = Conv1D(
       inChannels: min(ch, maxChannels), outChannels: outChannels, kernelSize: 1)
   }
@@ -87,8 +86,8 @@ class VQEncoder: Trainable {
     for layer in blocks.children {
       h = layer(h)
     }
-    h = outNorm(h)
-    h = self.outProj(h)
+    //h = outNorm(h)
+    //h = self.outProj(h)
     return h
   }
 }
@@ -223,24 +222,21 @@ class VQVAE: Trainable {
   @Child var decoder: VQDecoder
   @Child var outFlow: FlowModel
 
-  init(channels: Int, vocab: Int, latentChannels: Int, downsamples: Int, condChannels: Int = 4) {
+  init(channels: Int, vocab: Int, latentChannels: Int, downsamples: Int, condChannels: Int = 32) {
     super.init()
     self.encoder = VQEncoder(
       inChannels: channels, outChannels: latentChannels, downsamples: downsamples)
     self.bottleneck = VQBottleneck(vocab: vocab, channels: latentChannels)
     self.decoder = VQDecoder(
       inChannels: latentChannels, outChannels: condChannels, upsamples: downsamples)
-    self.outFlow = FlowModel(condChannels: condChannels)
+    self.outFlow = FlowModel(condChannels: 1)
   }
 
-  func callAsFunction(_ x: Tensor) -> (nll: Tensor, vqLosses: VQBottleneck.Losses) {
-    var h = x
-    h = encoder(h)
-    let vqOut = bottleneck(h)
-    h = vqOut.straightThrough
-    h = decoder(h)
-    let nll = outFlow.negativeLogLikelihood(sample: x, cond: h)
-    return (nll: nll / x.shape[2], vqLosses: vqOut.losses)
+  func callAsFunction(_ x: Tensor) -> Tensor {
+    //let h = bottleneck(self.encoder(x)).straightThrough
+    let h = self.encoder(x)
+    return h
+    //return outFlow.negativeLogLikelihood(sample: x, cond: x) + h.sum()*0
   }
 
   func sampleReconstruction(_ x: Tensor) -> Tensor {

@@ -7,21 +7,26 @@ class FlowLayer: Trainable {
 
   @Child var condConv: Conv1D
   @Child var conv1: Conv1D
-  @Child var norm: GroupNorm
   @Child var conv2: Conv1D
+  @Child var conv3: Conv1D
+  @Child var norm1: GroupNorm
+  @Child var norm2: GroupNorm
 
   init(isEven: Bool, condChannels: Int, hiddenChannels: Int) {
     self.isEven = isEven
     super.init()
     condConv = Conv1D(
-      inChannels: condChannels, outChannels: hiddenChannels, kernelSize: 3, stride: 2,
-      padding: .allSides(1))
+      inChannels: condChannels, outChannels: hiddenChannels, kernelSize: 5, stride: 2,
+      padding: .allSides(2))
     conv1 = Conv1D(
-      inChannels: 1, outChannels: hiddenChannels, kernelSize: 3, stride: 1, padding: .same)
-    norm = GroupNorm(groupCount: 32, channelCount: hiddenChannels)
+      inChannels: 1, outChannels: hiddenChannels, kernelSize: 5, stride: 1, padding: .same)
     conv2 = Conv1D(
-      inChannels: hiddenChannels, outChannels: 2, kernelSize: 3, stride: 1, padding: .same)
-    for (_, var p) in conv2.parameters {
+      inChannels: hiddenChannels, outChannels: hiddenChannels, kernelSize: 5, stride: 1, padding: .same)
+    conv3 = Conv1D(
+      inChannels: hiddenChannels, outChannels: 2, kernelSize: 5, stride: 1, padding: .same)
+    //norm1 = GroupNorm(groupCount: 32, channelCount: hiddenChannels)
+    //norm2 = GroupNorm(groupCount: 32, channelCount: hiddenChannels)
+    for (_, var p) in conv3.parameters {
       p.data! = Tensor(zerosLike: p.data!)
     }
   }
@@ -51,11 +56,20 @@ class FlowLayer: Trainable {
         (split[1], split[0])
       }
 
-    let scaleAndBias = conv2(norm((conv1(inputs) + condConv(cond)).gelu())).chunk(axis: 1, count: 2)
-    let (scaleParams, bias) = (scaleAndBias[0], scaleAndBias[1])
+    var h = conv1(inputs)
+    //var h = conv1(inputs) + condConv(cond)
+    //h = norm1(h)
+    h = h.gelu()
+    h = conv2(h).printing(onGrad: { g in print("conv2 out", try await g.min().item(), try await g.max().item()) })
+    //h = norm2(h)
+    h = h.gelu()
+    //h = conv3(h).printing(onGrad: { g in print("conv3 out", try await g.min().item(), try await g.max().item()) })
+    /*let scaleAndBias = h.chunk(axis: 1, count: 2)
+    let (scaleParams, biasParams) = (scaleAndBias[0], scaleAndBias[1])
 
-    let logScale = scaleParams.atan()
+    let logScale = scaleParams.atan() * 0.0
     let scale = logScale.exp()
+    let bias = biasParams * 0.0
 
     let modified =
       if invert {
@@ -69,20 +83,22 @@ class FlowLayer: Trainable {
         Tensor(stack: [inputs, modified], axis: -1).flatten(startAxis: -2)
       } else {
         Tensor(stack: [modified, inputs], axis: -1).flatten(startAxis: -2)
-      }
+      }*/
 
-    return (out: combinedOut, logScale: logScale.sum(axis: -1).squeeze(axis: 1))
+    return (out: x + h.sum()*0, logScale: h.sum(axis: -1).squeeze(axis: 1))
+
+    //return (out: combinedOut, logScale: logScale.sum(axis: -1).squeeze(axis: 1))
   }
 }
 
 class FlowModel: Trainable {
   @Child var layers: TrainableArray<FlowLayer>
 
-  init(condChannels: Int, layerCount: Int = 10, hiddenChannels: Int = 64) {
+  init(condChannels: Int, layerCount: Int = 1, hiddenChannels: Int = 1) {
     super.init()
     layers = TrainableArray(
       (0..<layerCount).map { i in
-        FlowLayer(isEven: i % 2 == 0, condChannels: condChannels, hiddenChannels: hiddenChannels)
+        FlowLayer(isEven: i % 2 == 1, condChannels: condChannels, hiddenChannels: hiddenChannels)
       })
   }
 
@@ -105,7 +121,7 @@ class FlowModel: Trainable {
     return (out: h, logScale: logDet)
   }
 
-  func negativeLogLikelihood(sample: Tensor, cond: Tensor, quantization: Float = 1.0 / 255.0)
+  func negativeLogLikelihood(sample: Tensor, cond: Tensor, quantization: Float = 1.0 / 127.5)
     -> Tensor
   {
     let (noise, logDet) = sampleToNoise(

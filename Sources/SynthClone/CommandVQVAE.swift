@@ -10,14 +10,16 @@ class CommandVQVAE: Command {
     let opt: Adam.State?
   }
 
-  let sampleCount: Int = 1024 * 24 * 5
+  //let sampleCount: Int = 1024 * 12 * 5
+  let sampleCount: Int = 32768
 
-  let lr: Float = 0.00003
+  let lr: Float = 0.00001
   let bs = 2
   let reviveInterval = 500
   let reviveBatches = 16
-  let commitCoeff = 1.0
-  let inputNoise = 0.0001
+  let commitCoeff = 0.1
+  let inputNoise = 0.001
+  let gradClip = 1.0
 
   let savePath: String
   let samplePath: String
@@ -39,8 +41,8 @@ class CommandVQVAE: Command {
     savePath = args[2]
 
     print("creating model and optimizer...")
-    model = VQVAE(channels: 1, vocab: 16384, latentChannels: 4, downsamples: 8)
-    opt = Adam(model.parameters, lr: lr)
+    model = VQVAE(channels: 1, vocab: 16384, latentChannels: 4, downsamples: 1)
+    opt = Adam(model.parameters, lr: lr, weightDecay: 0.1)
   }
 
   override public func run() async throws {
@@ -81,6 +83,7 @@ class CommandVQVAE: Command {
   }
 
   private func revive() async throws {
+    return
     print("reviving unused dictionary entries...")
     print(" => collecting features...")
     var reviveBatch = [Tensor]()
@@ -102,15 +105,16 @@ class CommandVQVAE: Command {
     for try await (batch, _) in takeDataset(reviveInterval) {
       let batch = batch + Tensor(randnLike: batch) * inputNoise
       step += 1
-      let (nll, vqLosses) = model(batch)
+      let nll = model(batch)
       let loss = nll.mean()
-      (loss + vqLosses.codebookLoss + commitCoeff * vqLosses.commitmentLoss).backward()
+      (loss*0).backward()
+      let gradNorm = clipGradients(model: model, threshold: gradClip)
       opt.step()
       opt.clearGrads()
       print(
         "step \(step):"
           + " loss=\(try await loss.item())"
-          + " commitment=\(try await vqLosses.commitmentLoss.item())"
+          + " grad_norm=\(try await gradNorm.item())"
           + " gflops=\(gflops)")
     }
   }

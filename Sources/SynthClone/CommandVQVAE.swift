@@ -19,7 +19,6 @@ class CommandVQVAE: Command {
   let reviveBatches = 16
   let commitCoeff = 1.0
   let inputNoise = 0.0001
-  let maxGradNorm = 10.0
 
   let savePath: String
   let samplePath: String

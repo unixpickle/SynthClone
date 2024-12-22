@@ -15,15 +15,15 @@ class FlowLayer: Trainable {
     self.isEven = isEven
     super.init()
     condConv = Conv1D(
-      inChannels: condChannels, outChannels: hiddenChannels, kernelSize: 3, stride: 2,
-      padding: .allSides(1))
+      inChannels: condChannels, outChannels: hiddenChannels, kernelSize: 5, stride: 2,
+      padding: .allSides(2))
     conv1 = Conv1D(
-      inChannels: 1, outChannels: hiddenChannels, kernelSize: 3, stride: 1, padding: .same)
+      inChannels: 1, outChannels: hiddenChannels, kernelSize: 5, stride: 1, padding: .same)
     conv2 = Conv1D(
-      inChannels: hiddenChannels, outChannels: hiddenChannels, kernelSize: 3, stride: 1,
+      inChannels: hiddenChannels, outChannels: hiddenChannels, kernelSize: 5, stride: 1,
       padding: .same)
     conv3 = Conv1D(
-      inChannels: hiddenChannels, outChannels: 2, kernelSize: 3, stride: 1, padding: .same)
+      inChannels: hiddenChannels, outChannels: 2, kernelSize: 5, stride: 1, padding: .same)
     norm = GroupNorm(groupCount: 32, channelCount: hiddenChannels)
     for (_, var p) in conv3.parameters {
       p.data! = Tensor(zerosLike: p.data!)

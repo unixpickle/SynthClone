@@ -67,7 +67,7 @@ func tensorToAudio(tensor: Tensor, sampleRate: Int = 24000) async throws -> Data
 
   let audioData = audioBuffer.floatChannelData![0]
   for i in 0..<rawAudioSamples.count {
-    audioData[i] = rawAudioSamples[i]
+    audioData[i] = max(-1.0, min(1.0, rawAudioSamples[i]))
   }
 
   let tempFileURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

@@ -96,8 +96,8 @@ class FlowModel: Trainable {
       })
   }
 
-  func noiseToSample(noise: Tensor? = nil, cond: Tensor) -> Tensor {
-    var h = noise ?? Tensor(randn: [cond.shape[0], 1, cond.shape[2]])
+  func noiseToSample(noise: Tensor? = nil, cond: Tensor, temperature: Float = 1.0) -> Tensor {
+    var h = noise ?? (Tensor(randn: [cond.shape[0], 1, cond.shape[2]]) * temperature)
     for layer in layers.children {
       h = layer.noiseToSample(noise: h, cond: cond)
     }

@@ -13,12 +13,13 @@ class CommandVQVAE: Command {
 
   let sampleCount: Int = 1024 * 24 * 5
 
-  let lr: Float = 0.00003
+  let lr: Float = 0.00001
   let bs = 2
   let reviveInterval = 500
   let reviveBatches = 16
   let commitCoeff = 1.0
   let inputNoise = 0.0001
+  let sampleTemp = 0.8
 
   let savePath: String
   let samplePath: String
@@ -131,7 +132,7 @@ class CommandVQVAE: Command {
     let input = inputRaw + Tensor(randnLike: inputRaw) * inputNoise
     let output = Tensor.withGrad(enabled: false) {
       model.withMode(.inference) {
-        model.sampleReconstruction(input)
+        model.sampleReconstruction(input, temperature: Float(sampleTemp))
       }
     }
     let audios = Tensor(concat: [input, output], axis: -1)

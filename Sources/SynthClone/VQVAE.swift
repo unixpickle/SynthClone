@@ -243,13 +243,13 @@ class VQVAE: Trainable {
     return (nll: nll / x.shape[2], vqLosses: vqOut.losses)
   }
 
-  func sampleReconstruction(_ x: Tensor) -> Tensor {
+  func sampleReconstruction(_ x: Tensor, temperature: Float = 1.0) -> Tensor {
     var h = x
     h = encoder(h)
     let vqOut = bottleneck(h)
     h = vqOut.straightThrough
     h = decoder(h)
-    return outFlow.noiseToSample(cond: h)
+    return outFlow.noiseToSample(cond: h, temperature: temperature)
   }
 
   func features(_ x: Tensor) -> Tensor {

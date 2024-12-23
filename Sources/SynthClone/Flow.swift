@@ -45,14 +45,12 @@ class FlowLayer: Trainable {
     #alwaysAssert(x.shape[1] == 1)
     #alwaysAssert(x.shape[2] % 2 == 0)
 
-    let split = x.reshape(x.shape[..<2] + [x.shape.last! / 2, 2]).chunk(axis: -1, count: 2).map {
-      $0.squeeze(axis: -1)
-    }
+    let split = splitAlongTime(x)
     let (inputs, toModify) =
       if isEven {
-        (split[0], split[1])
+        split
       } else {
-        (split[1], split[0])
+        (split.1, split.0)
       }
 
     var h = conv1(inputs) + condConv(cond)
@@ -76,53 +74,106 @@ class FlowLayer: Trainable {
 
     let combinedOut =
       if isEven {
-        Tensor(stack: [inputs, modified], axis: -1).flatten(startAxis: -2)
+        unsplitAlongTime(inputs, modified)
       } else {
-        Tensor(stack: [modified, inputs], axis: -1).flatten(startAxis: -2)
+        unsplitAlongTime(modified, inputs)
       }
 
-    return (out: combinedOut, logScale: logScale.sum(axis: -1).squeeze(axis: 1))
+    return (out: combinedOut, logScale: logScale.flatten(startAxis: 1).sum(axis: 1))
   }
 }
 
 class FlowModel: Trainable {
+  let layersPerResolution: Int
   @Child var layers: TrainableArray<FlowLayer>
+  @Child var condDownsample: TrainableArray<Conv1D>
 
-  init(condChannels: Int, layerCount: Int = 10, hiddenChannels: Int = 64) {
+  init(
+    condChannels: Int, downsamples: Int = 8, layersPerResolution: Int = 4, hiddenChannels: Int = 64
+  ) {
+    self.layersPerResolution = layersPerResolution
     super.init()
     layers = TrainableArray(
-      (0..<layerCount).map { i in
+      (0..<(downsamples * layersPerResolution)).map { i in
         FlowLayer(isEven: i % 2 == 0, condChannels: condChannels, hiddenChannels: hiddenChannels)
+      })
+    condDownsample = TrainableArray(
+      (0..<(downsamples - 1)).map { _ in
+        Conv1D(
+          inChannels: condChannels, outChannels: condChannels, kernelSize: 5, stride: 2,
+          padding: .allSides(2))
       })
   }
 
-  func noiseToSample(noise: Tensor? = nil, cond: Tensor, temperature: Float = 1.0) -> Tensor {
-    var h = noise ?? (Tensor(randn: [cond.shape[0], 1, cond.shape[2]]) * temperature)
-    for layer in layers.children {
-      h = layer.noiseToSample(noise: h, cond: cond)
+  func noiseToSample(cond: Tensor, temperature: Float = 1.0) -> Tensor {
+    let conds: [Tensor] = computeConds(cond: cond).reversed()
+    var h = Tensor(randn: [cond.shape[0], 1, conds.first!.shape[2]]) * temperature
+    for (i, layer) in layers.children.enumerated() {
+      let condForRes = conds[i / layersPerResolution]
+      h = layer.noiseToSample(noise: h, cond: condForRes)
+      if (i + 1) % layersPerResolution == 0 {
+        let noise = Tensor(randnLike: h)
+        h = unsplitAlongTime(h, noise)
+      }
     }
     return h
   }
 
-  func sampleToNoise(sample: Tensor, cond: Tensor) -> (out: Tensor, logScale: Tensor) {
+  func sampleToNoise(sample: Tensor, cond: Tensor) -> (noises: [Tensor], logScale: Tensor) {
+    let conds = computeConds(cond: cond)
     var h = sample
+    var noises = [Tensor]()
     var logDet = Tensor(zeros: [h.shape[0]])
-    for layer in layers.children.reversed() {
-      let (out, scale) = layer.sampleToNoise(sample: h, cond: cond)
+    for (i, layer) in layers.children.reversed().enumerated() {
+      let condForRes = conds[i / layersPerResolution]
+
+      #alwaysAssert(condForRes.shape[2] == h.shape[2])
+
+      let (out, scale) = layer.sampleToNoise(sample: h, cond: condForRes)
       h = out
       logDet = logDet + scale
+
+      if (i + 1) % layersPerResolution == 0 && i + 1 < layers.children.count {
+        let (newH, noise) = splitAlongTime(h)
+        noises.append(noise)
+        h = newH
+      }
     }
-    return (out: h, logScale: logDet)
+    return (noises: noises + [h], logScale: logDet)
   }
 
   func negativeLogLikelihood(sample: Tensor, cond: Tensor, quantization: Float = 1.0 / 255.0)
     -> Tensor
   {
-    let (noise, logDet) = sampleToNoise(
+    let (noises, logDet) = sampleToNoise(
       sample: sample + (Tensor(randLike: sample) - 0.5) * quantization, cond: cond)
     let bias = log(2.0 * Double.pi)
-    let noiseProb = -0.5 * (bias + noise.pow(2)).sum(axis: 2).squeeze(axis: 1)
+    var noiseProb = Tensor(zeros: [sample.shape[0]])
+    for noise in noises {
+      noiseProb = noiseProb - 0.5 * (bias + noise.pow(2)).flatten(startAxis: 1).sum(axis: 1)
+    }
     let quantCorrection = log(quantization) * Float(sample.shape[2])
     return -(noiseProb + quantCorrection - logDet)
   }
+
+  func computeConds(cond: Tensor) -> [Tensor] {
+    var condH = cond
+    var conds = [cond]
+    for layer in condDownsample.children {
+      condH = layer(condH)
+      conds.append(condH)
+    }
+    return conds
+  }
+}
+
+func splitAlongTime(_ x: Tensor) -> (Tensor, Tensor) {
+  let split = x.reshape(x.shape[..<2] + [x.shape.last! / 2, 2]).chunk(axis: -1, count: 2).map {
+    $0.squeeze(axis: -1)
+  }
+  return (split[0], split[1])
+}
+
+func unsplitAlongTime(_ x: Tensor, _ y: Tensor) -> Tensor {
+  return Tensor(stack: [x, y], axis: -1).flatten(startAxis: -2)
 }

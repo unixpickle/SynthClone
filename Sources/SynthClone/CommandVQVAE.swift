@@ -13,7 +13,7 @@ class CommandVQVAE: Command {
 
   let sampleCount: Int = 1024 * 24 * 5
 
-  let lr: Float = 0.00001
+  let lr: Float = 0.00003
   let bs = 2
   let reviveInterval = 500
   let reviveBatches = 16

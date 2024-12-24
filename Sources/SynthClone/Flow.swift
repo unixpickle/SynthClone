@@ -111,8 +111,8 @@ class FlowModel: Trainable {
     for (i, layer) in layers.children.enumerated() {
       let condForRes = conds[i / layersPerResolution]
       h = layer.noiseToSample(noise: h, cond: condForRes)
-      if (i + 1) % layersPerResolution == 0 {
-        let noise = Tensor(randnLike: h)
+      if (i + 1) % layersPerResolution == 0 && i + 1 < layers.children.count {
+        let noise = Tensor(randnLike: h) * temperature
         h = unsplitAlongTime(h, noise)
       }
     }

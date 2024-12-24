@@ -89,7 +89,7 @@ class FlowModel: Trainable {
   @Child var condDownsample: TrainableArray<Conv1D>
 
   init(
-    condChannels: Int, downsamples: Int = 8, layersPerResolution: Int = 4, hiddenChannels: Int = 64
+    condChannels: Int, downsamples: Int = 8, layersPerResolution: Int = 6, hiddenChannels: Int = 64
   ) {
     self.layersPerResolution = layersPerResolution
     super.init()

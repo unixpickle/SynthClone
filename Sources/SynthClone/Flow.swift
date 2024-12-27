@@ -55,9 +55,9 @@ class FlowLayer: Trainable {
 
     var h = conv1(inputs) + condConv(cond)
     h = norm(h)
-    h = h.relu()
+    h = h.gelu()
     h = conv2(h)
-    h = h.relu()
+    h = h.gelu()
     h = conv3(h)
     let scaleAndBias = h.chunk(axis: 1, count: 2)
     let (scaleParams, bias) = (scaleAndBias[0], scaleAndBias[1])
@@ -89,7 +89,7 @@ class FlowModel: Trainable {
   @Child var condDownsample: TrainableArray<Conv1D>
 
   init(
-    condChannels: Int, downsamples: Int = 8, layersPerResolution: Int = 8, hiddenChannels: Int = 64
+    condChannels: Int, downsamples: Int = 2, layersPerResolution: Int = 12, hiddenChannels: Int = 96
   ) {
     self.layersPerResolution = layersPerResolution
     super.init()

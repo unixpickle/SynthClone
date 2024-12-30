@@ -1,6 +1,8 @@
 import HCBacktrace
 import Honeycrisp
 
+let baseChannels = 96
+
 class DownsampleBlock: Trainable {
   @Child var norm: GroupNorm
   @Child var conv1: Conv1D
@@ -62,7 +64,7 @@ class UpsampleBlock: Trainable {
 class VQEncoder: Trainable {
   var ff: FourierFeatures
   @Child var inProj: Conv1D
-  @Child var blocks: TrainableArray<DownsampleBlock>
+  @Child var blocks: TrainableArray<SyncTrainable<DownsampleBlock>>
   @Child var outNorm: GroupNorm
   @Child var outProj: Conv1D
 
@@ -71,13 +73,14 @@ class VQEncoder: Trainable {
     ff = FourierFeatures()
     super.init()
     self.inProj = Conv1D(
-      inChannels: ff.bucketCount, outChannels: 64, kernelSize: 3, padding: .same)
+      inChannels: ff.bucketCount, outChannels: baseChannels, kernelSize: 3, padding: .same)
 
-    var blockArr = [DownsampleBlock]()
-    var ch = 64
+    var blockArr = [SyncTrainable<DownsampleBlock>]()
+    var ch = baseChannels
     for _ in 0..<downsamples {
       blockArr.append(
-        DownsampleBlock(inChannels: min(maxChannels, ch), outChannels: min(maxChannels, ch * 2)))
+        SyncTrainable(
+          DownsampleBlock(inChannels: min(maxChannels, ch), outChannels: min(maxChannels, ch * 2))))
       ch *= 2
     }
     self.blocks = TrainableArray(blockArr)
@@ -91,7 +94,8 @@ class VQEncoder: Trainable {
     h = ff(h)
     h = inProj(h)
     for layer in blocks.children {
-      h = layer(h)
+      // h = layer.use { $0(h) }
+      h = Tensor.checkpoint([h], { args in [layer.use { $0(args[0]) }] })[0]
     }
     h = outNorm(h)
     h = outProj(h)
@@ -101,21 +105,22 @@ class VQEncoder: Trainable {
 
 class VQDecoder: Trainable {
   @Child var inProj: Conv1D
-  @Child var blocks: TrainableArray<UpsampleBlock>
+  @Child var blocks: TrainableArray<SyncTrainable<UpsampleBlock>>
   @Child var outNorm: GroupNorm
   @Child var outProj: Conv1D
 
   init(inChannels: Int, outChannels: Int, upsamples: Int, maxChannels: Int = 256) {
     super.init()
     self.inProj = Conv1D(
-      inChannels: inChannels, outChannels: min(maxChannels, 64 * (1 << upsamples)),
+      inChannels: inChannels, outChannels: min(maxChannels, baseChannels * (1 << upsamples)),
       kernelSize: 3, padding: .same)
 
-    var blockArr = [UpsampleBlock]()
-    var ch = 64 * (1 << upsamples)
+    var blockArr = [SyncTrainable<UpsampleBlock>]()
+    var ch = baseChannels * (1 << upsamples)
     for _ in 0..<upsamples {
       blockArr.append(
-        UpsampleBlock(inChannels: min(ch, maxChannels), outChannels: min(ch / 2, maxChannels)))
+        SyncTrainable(
+          UpsampleBlock(inChannels: min(ch, maxChannels), outChannels: min(ch / 2, maxChannels))))
       ch /= 2
     }
     self.blocks = TrainableArray(blockArr)
@@ -128,7 +133,8 @@ class VQDecoder: Trainable {
   @recordCaller private func _callAsFunction(_ x: Tensor) -> Tensor {
     var h = self.inProj(x)
     for layer in blocks.children {
-      h = layer(h)
+      h = Tensor.checkpoint([h], { args in [layer.use { $0(args[0]) }] })[0]
+      // h = layer.use { $0(h) }
     }
     h = outNorm(h)
     h = h.gelu()

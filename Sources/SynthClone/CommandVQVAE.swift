@@ -22,7 +22,7 @@ class CommandVQVAE: Command {
   let bs = 2
   let reviveInterval = 500
   let reviveBatches = 16
-  let commitCoeff = 1.0
+  let commitCoeff = 5.0
   let sampleTemp = 0.8
 
   let savePath: String

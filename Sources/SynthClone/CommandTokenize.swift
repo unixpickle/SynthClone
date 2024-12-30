@@ -4,6 +4,10 @@ import Honeycrisp
 
 class CommandTokenize: Command {
 
+  public static var usage: String {
+    "tokenize <data_dir> <vq_path> <output_dir>"
+  }
+
   public struct Shard: Codable {
     public struct Record: Codable {
       public let id: String
@@ -27,7 +31,7 @@ class CommandTokenize: Command {
     Backend.defaultBackend = try MPSBackend(allocator: .bucket)
 
     if args.count != 3 {
-      print("Usage: ... tokenize <data_dir> <vq_path> <output_dir>")
+      print("Usage: ... \(Self.usage)")
       throw ArgumentError.invalidArgs
     }
     let baseDir = URL(filePath: args[0])

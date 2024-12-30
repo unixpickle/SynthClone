@@ -3,6 +3,10 @@ import Honeycrisp
 
 class CommandVQVAE: Command {
 
+  public static var usage: String {
+    "vqvae <audio_dir> <sample_path> <save_path>"
+  }
+
   public struct State: Codable {
     let step: Int
     let model: Trainable.State
@@ -11,14 +15,14 @@ class CommandVQVAE: Command {
     let clipper: GradClipper.State?
   }
 
-  let sampleCount: Int = 1024 * 24 * 5
+  static let sampleCount: Int = 1024 * 24 * 5
+  static let inputNoise = 0.0001
 
   let lr: Float = 0.00003
   let bs = 2
   let reviveInterval = 500
   let reviveBatches = 16
   let commitCoeff = 1.0
-  let inputNoise = 0.0001
   let sampleTemp = 0.8
 
   let savePath: String
@@ -34,7 +38,7 @@ class CommandVQVAE: Command {
     Backend.defaultBackend = try MPSBackend(allocator: .bucket)
 
     if args.count != 3 {
-      print("Usage: ... vqvae <audio_dir> <sample_path> <save_path>")
+      print("Usage: ... \(Self.usage)")
       throw ArgumentError.invalidArgs
     }
     audioDir = args[0]
@@ -42,9 +46,13 @@ class CommandVQVAE: Command {
     savePath = args[2]
 
     print("creating model and optimizer...")
-    model = VQVAE(channels: 1, vocab: 16384, latentChannels: 4, downsamples: 8)
+    model = Self.createModel()
     opt = Adam(model.parameters, lr: lr)
     clipper = GradClipper()
+  }
+
+  static public func createModel() -> VQVAE {
+    VQVAE(channels: 1, vocab: 16384, latentChannels: 4, downsamples: 8)
   }
 
   override public func run() async throws {
@@ -60,7 +68,7 @@ class CommandVQVAE: Command {
   private func prepare() async throws {
     print("creating data loader...")
     let dataLoader = AudioDataLoader(
-      batchSize: bs, audios: try AudioIterator(audioDir: audioDir, sampleCount: sampleCount))
+      batchSize: bs, audios: try AudioIterator(audioDir: audioDir, sampleCount: Self.sampleCount))
     if FileManager.default.fileExists(atPath: savePath) {
       print("loading from checkpoint: \(savePath) ...")
       let data = try Data(contentsOf: URL(fileURLWithPath: savePath))
@@ -107,7 +115,7 @@ class CommandVQVAE: Command {
   private func trainInnerLoop() async throws {
     print("training...")
     for try await (batch, _) in takeDataset(reviveInterval) {
-      let batch = batch + Tensor(randnLike: batch) * inputNoise
+      let batch = batch + Tensor(randnLike: batch) * Self.inputNoise
       step += 1
       let (nll, vqLosses) = model(batch)
       let loss = nll.mean()
@@ -129,7 +137,7 @@ class CommandVQVAE: Command {
     print("dumping samples to: \(samplePath) ...")
     var it = dataStream!.makeAsyncIterator()
     let (inputRaw, dataState) = try await it.next()!
-    let input = inputRaw + Tensor(randnLike: inputRaw) * inputNoise
+    let input = inputRaw + Tensor(randnLike: inputRaw) * Self.inputNoise
     let output = Tensor.withGrad(enabled: false) {
       model.withMode(.inference) {
         model.sampleReconstruction(input, temperature: Float(sampleTemp))

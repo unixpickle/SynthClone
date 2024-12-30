@@ -11,6 +11,10 @@ extension TrainAndEval: Sendable where T: Sendable {}
 
 class CommandTransformer: Command {
 
+  public static var usage: String {
+    "transformer <data_dir> <vq_path> <save_path>"
+  }
+
   typealias DataStream = AsyncThrowingStream<
     TrainAndEval<(Tensor, CaptionedSequenceDataLoader.State)>, Error
   >
@@ -60,7 +64,7 @@ class CommandTransformer: Command {
     Backend.defaultBackend = try MPSBackend(allocator: .heap(12_000_000_000))
 
     if args.count != 3 {
-      print("Usage: Text2Image transformer <data_dir> <vq_path> <save_path>")
+      print("Usage: ... \(Self.usage)")
       throw ArgumentError.invalidArgs
     }
     dataDir = args[0]

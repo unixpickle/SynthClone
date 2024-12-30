@@ -5,8 +5,6 @@ import Honeycrisp
 class FlowLayer: Trainable {
   let isEven: Bool
 
-  var ff: FourierFeatures
-
   @Child var condConv: Conv1D
   @Child var conv1: Conv1D
   @Child var conv2: Conv1D
@@ -15,13 +13,12 @@ class FlowLayer: Trainable {
 
   init(isEven: Bool, condChannels: Int, hiddenChannels: Int) {
     self.isEven = isEven
-    ff = FourierFeatures()
     super.init()
     condConv = Conv1D(
       inChannels: condChannels, outChannels: hiddenChannels, kernelSize: 5, stride: 2,
       padding: .allSides(2))
     conv1 = Conv1D(
-      inChannels: ff.bucketCount, outChannels: hiddenChannels, kernelSize: 5, stride: 1,
+      inChannels: 1, outChannels: hiddenChannels, kernelSize: 5, stride: 1,
       padding: .same)
     conv2 = Conv1D(
       inChannels: hiddenChannels, outChannels: hiddenChannels, kernelSize: 5, stride: 1,
@@ -57,7 +54,7 @@ class FlowLayer: Trainable {
         (split.1, split.0)
       }
 
-    var h = conv1(ff(inputs)) + condConv(cond)
+    var h = conv1(inputs) + condConv(cond)
     h = norm(h)
     h = h.gelu()
     h = conv2(h)
@@ -99,7 +96,11 @@ class FlowModel: Trainable {
     super.init()
     layers = TrainableArray(
       (0..<(downsamples * layersPerResolution)).map { i in
-        FlowLayer(isEven: i % 2 == 0, condChannels: condChannels, hiddenChannels: hiddenChannels)
+        FlowLayer(
+          isEven: i % 2 == 0,
+          condChannels: condChannels,
+          hiddenChannels: hiddenChannels
+        )
       })
     condDownsample = TrainableArray(
       (0..<(downsamples - 1)).map { _ in

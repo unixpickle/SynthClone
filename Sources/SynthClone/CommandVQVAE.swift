@@ -18,7 +18,7 @@ class CommandVQVAE: Command {
   static let sampleCount: Int = 1024 * 24 * 5
   static let inputNoise = 0.0001
 
-  let lr: Float = 0.000003
+  let lr: Float = 0.00003
   let bs = 2
   let reviveInterval = 500
   let reviveBatches = 16

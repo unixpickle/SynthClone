@@ -1,3 +1,4 @@
+import HCBacktrace
 import Honeycrisp
 
 class DownsampleBlock: Trainable {
@@ -18,7 +19,7 @@ class DownsampleBlock: Trainable {
       inChannels: inChannels, outChannels: outChannels, kernelSize: 1, stride: 2)
   }
 
-  func callAsFunction(_ x: Tensor) -> Tensor {
+  @recordCaller private func _callAsFunction(_ x: Tensor) -> Tensor {
     var h = norm(x)
     h = conv1(h)
     h = h.gelu()
@@ -45,7 +46,7 @@ class UpsampleBlock: Trainable {
       inChannels: inChannels, outChannels: outChannels, kernelSize: 1)
   }
 
-  func callAsFunction(_ x: Tensor) -> Tensor {
+  @recordCaller private func _callAsFunction(_ x: Tensor) -> Tensor {
     // Neighbor upsampling for x.
     let x = x.unsqueeze(axis: -1).repeating(axis: -1, count: 2).flatten(startAxis: -2)
 
@@ -59,15 +60,18 @@ class UpsampleBlock: Trainable {
 }
 
 class VQEncoder: Trainable {
+  var ff: FourierFeatures
   @Child var inProj: Conv1D
   @Child var blocks: TrainableArray<DownsampleBlock>
   @Child var outNorm: GroupNorm
   @Child var outProj: Conv1D
 
   init(inChannels: Int, outChannels: Int, downsamples: Int, maxChannels: Int = 256) {
+    #alwaysAssert(inChannels == 1)
+    ff = FourierFeatures()
     super.init()
     self.inProj = Conv1D(
-      inChannels: inChannels, outChannels: 64, kernelSize: 3, padding: .same)
+      inChannels: ff.bucketCount, outChannels: 64, kernelSize: 3, padding: .same)
 
     var blockArr = [DownsampleBlock]()
     var ch = 64
@@ -82,13 +86,15 @@ class VQEncoder: Trainable {
       inChannels: min(ch, maxChannels), outChannels: outChannels, kernelSize: 1)
   }
 
-  func callAsFunction(_ x: Tensor) -> Tensor {
-    var h = self.inProj(x)
+  @recordCaller private func _callAsFunction(_ x: Tensor) -> Tensor {
+    var h = x
+    h = ff(h)
+    h = inProj(h)
     for layer in blocks.children {
       h = layer(h)
     }
     h = outNorm(h)
-    h = self.outProj(h)
+    h = outProj(h)
     return h
   }
 }
@@ -119,7 +125,7 @@ class VQDecoder: Trainable {
       padding: .same)
   }
 
-  func callAsFunction(_ x: Tensor) -> Tensor {
+  @recordCaller private func _callAsFunction(_ x: Tensor) -> Tensor {
     var h = self.inProj(x)
     for layer in blocks.children {
       h = layer(h)
@@ -157,7 +163,7 @@ class VQBottleneck: Trainable {
     self.dictionary = Tensor(randn: [vocab, channels])
   }
 
-  func callAsFunction(_ x: Tensor) -> Output {
+  @recordCaller private func _callAsFunction(_ x: Tensor) -> Output {
     let batch = x.shape[0]
     let channels = x.shape[1]
     let spatialShape = Array(x.shape[2...])
@@ -233,7 +239,9 @@ class VQVAE: Trainable {
     self.outFlow = FlowModel(condChannels: condChannels)
   }
 
-  func callAsFunction(_ x: Tensor) -> (nll: Tensor, vqLosses: VQBottleneck.Losses) {
+  @recordCaller private func _callAsFunction(_ x: Tensor) -> (
+    nll: Tensor, vqLosses: VQBottleneck.Losses
+  ) {
     var h = x
     h = encoder(h)
     let vqOut = bottleneck(h)

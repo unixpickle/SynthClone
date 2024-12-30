@@ -19,7 +19,6 @@ class CommandTokenize: Command {
   }
 
   let batchSize = 8
-  let sampleCount = 1024 * 24 * 5
 
   let audioDir: URL
   let captionDir: URL
@@ -115,7 +114,9 @@ class CommandTokenize: Command {
 
     func flushBatch() async throws {
       let vqs = Tensor.withGrad(enabled: false) {
-        vqvae.bottleneck(vqvae.encoder(Tensor(stack: currentBatch).move(axis: -1, to: 1))).codes
+        let audioTensor = Tensor(stack: currentBatch).move(axis: -1, to: 1)
+        let noise = Tensor(randnLike: audioTensor) * CommandVQVAE.inputNoise
+        return vqvae.bottleneck(vqvae.encoder(audioTensor + noise)).codes
       }
       for (i, (id, caption)) in zip(currentIDs, currentCaptions).enumerated() {
         let tokens = try await vqs[i].ints().map { UInt16($0) }
@@ -134,7 +135,9 @@ class CommandTokenize: Command {
       }
       do {
         let caption = String(decoding: try Data(contentsOf: captionPath), as: UTF8.self)
-        guard let audio = try? loadAudio(path: imagePath.path(), sampleCount: sampleCount) else {
+        guard
+          let audio = try? loadAudio(path: imagePath.path(), sampleCount: CommandVQVAE.sampleCount)
+        else {
           numFailed += 1
           continue
         }

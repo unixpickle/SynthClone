@@ -74,7 +74,7 @@ class CommandTransformer: Command {
     weightGradBackend = BackendFLOPCounter(
       wrapping: CoreMLBackend(wrapping: Backend.defaultBackend))
 
-    vqvae = VQVAE(channels: 4, vocab: 16384, latentChannels: 4, downsamples: 4)
+    vqvae = CommandVQVAE.createModel()
     model = Transformer(
       config: TransformerConfig(
         VocabSize: vqvae.bottleneck.vocab + 256, TokenCount: captionBytes + 16 * 16,

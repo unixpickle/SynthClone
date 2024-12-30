@@ -160,15 +160,17 @@ class VQBottleneck: Trainable {
     self.channels = channels
     super.init()
     self.usageCounter = Tensor(zeros: [vocab], dtype: .int64)
-    self.dictionary = Tensor(randn: [vocab, channels])
+    self.dictionary = normalize(Tensor(randn: [vocab, channels]))
   }
 
   @recordCaller private func _callAsFunction(_ x: Tensor) -> Output {
+    let dictionary = normalize(self.dictionary)
+
     let batch = x.shape[0]
     let channels = x.shape[1]
     let spatialShape = Array(x.shape[2...])
 
-    let vecs = x.move(axis: 1, to: -1).flatten(endAxis: -2)
+    let vecs = normalize(x.move(axis: 1, to: -1).flatten(endAxis: -2))
     let codes = nearestIndices(vecs, dictionary)
 
     if mode == .training {
@@ -176,7 +178,7 @@ class VQBottleneck: Trainable {
         usageCounter + Tensor(onesLike: codes).scatter(axis: 0, count: vocab, indices: codes)
     }
 
-    let selection = self.dictionary.gather(axis: 0, indices: codes)
+    let selection = dictionary.gather(axis: 0, indices: codes)
     let out = selection.reshape([batch] + spatialShape + [channels]).move(axis: -1, to: 1)
     return Output(
       straightThrough: out.noGrad() + (x - x.noGrad()),
@@ -189,7 +191,7 @@ class VQBottleneck: Trainable {
   }
 
   func embed(_ x: Tensor) -> Tensor {
-    return dictionary.gather(axis: 0, indices: x.flatten()).reshape(x.shape + [channels])
+    return normalize(dictionary).gather(axis: 0, indices: x.flatten()).reshape(x.shape + [channels])
   }
 
   func revive(_ x: Tensor) -> Tensor {
@@ -204,13 +206,17 @@ class VQBottleneck: Trainable {
       let newCenters = x.gather(axis: 0, indices: shuffleInds)
 
       let mask = (usageCounter > 0).unsqueeze(axis: 1).expand(as: dictionary)
-      dictionary = mask.when(isTrue: dictionary, isFalse: newCenters)
+      dictionary = mask.when(isTrue: dictionary, isFalse: normalize(newCenters))
 
       let reviveCount = (usageCounter == 0).cast(.int64).sum()
       usageCounter = Tensor(zerosLike: usageCounter)
       return reviveCount
     }
   }
+}
+
+func normalize(_ x: Tensor) -> Tensor {
+  x / x.pow(2).sum(axis: 1, keepdims: true).clamp(min: 1e-5).sqrt()
 }
 
 func nearestIndices(_ vecs: Tensor, _ centers: Tensor) -> Tensor {

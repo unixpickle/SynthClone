@@ -1,7 +1,7 @@
 import HCBacktrace
 import Honeycrisp
 
-let baseChannels = 96
+let baseChannels = 64
 
 class DownsampleBlock: Trainable {
   @Child var norm: GroupNorm

@@ -91,9 +91,9 @@ class FlowModel: Trainable {
 
   init(
     condChannels: Int,
-    downsamples: Int = 2,
-    layersPerResolution: Int = 12,
-    hiddenChannels: Int = 192
+    downsamples: Int = 3,
+    layersPerResolution: Int = 16,
+    hiddenChannels: Int = 64
   ) {
     self.layersPerResolution = layersPerResolution
     super.init()

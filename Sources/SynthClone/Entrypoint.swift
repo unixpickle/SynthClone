@@ -14,6 +14,7 @@ struct Main {
       "reconstruct": CommandReconstruct.init,
       "transformer": CommandTransformer.init,
       "tokenize": CommandTokenize.init,
+      "dedup": CommandDedup.init,
     ]
     guard let command = commands[CommandLine.arguments[1]] else {
       print("Unrecognized subcommand: \(CommandLine.arguments[1])")
@@ -35,6 +36,7 @@ struct Main {
     print("    \(CommandReconstruct.usage)")
     print("    \(CommandTokenize.usage)")
     print("    \(CommandTransformer.usage)")
+    print("    \(CommandDedup.usage)")
   }
 }
 

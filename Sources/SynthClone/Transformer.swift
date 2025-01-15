@@ -5,7 +5,6 @@ import Honeycrisp
 struct TransformerConfig {
   var VocabSize: Int
   let TokenCount: Int
-  var WeightGradBackend: Backend
   var LayerCount: Int = 24
   var ModelDim: Int = 1024
   var HeadDim: Int = 64
@@ -47,8 +46,8 @@ class KVCache {
     }
 
     init(batchSize: Int, config: TransformerConfig) {
-      k = Tensor(zeros: [batchSize, 0, config.ModelDim], dtype: .float16)
-      v = Tensor(zeros: [batchSize, 0, config.ModelDim], dtype: .float16)
+      k = Tensor(zeros: [batchSize, 0, config.ModelDim])
+      v = Tensor(zeros: [batchSize, 0, config.ModelDim])
     }
   }
 
@@ -82,13 +81,13 @@ class Attention: Trainable {
     causalMask = Tensor(constant: 1e8, shape: [config.TokenCount, config.TokenCount]).tril() - 1e8
     super.init()
     self.qProj = Linear(
-      inCount: config.ModelDim, outCount: config.ModelDim, castParams: .float16, bias: false)
+      inCount: config.ModelDim, outCount: config.ModelDim, bias: false)
     self.kProj = Linear(
-      inCount: config.ModelDim, outCount: config.ModelDim, castParams: .float16, bias: false)
+      inCount: config.ModelDim, outCount: config.ModelDim, bias: false)
     self.vProj = Linear(
-      inCount: config.ModelDim, outCount: config.ModelDim, castParams: .float16, bias: false)
+      inCount: config.ModelDim, outCount: config.ModelDim, bias: false)
     self.outProj = Linear(
-      inCount: config.ModelDim, outCount: config.ModelDim, castParams: .float16, bias: false)
+      inCount: config.ModelDim, outCount: config.ModelDim, bias: false)
   }
 
   func callAsFunction(_ x: Tensor, kvCache: KVCache.Layer? = nil) -> Tensor {
@@ -109,9 +108,9 @@ class Attention: Trainable {
       if let kvCache = kvCache {
         {
           let innerK = Tensor(
-            concat: [kvCache.k, kProj(x, weightGradBackend: config.WeightGradBackend)], axis: 1)
+            concat: [kvCache.k, kProj(x)], axis: 1)
           let innerV = Tensor(
-            concat: [kvCache.v, vProj(x, weightGradBackend: config.WeightGradBackend)], axis: 1)
+            concat: [kvCache.v, vProj(x)], axis: 1)
           let k = moveHeadsToOuter(innerK) / sqrt(sqrt(Float(config.HeadDim)))
           let v = moveHeadsToOuter(innerV)
           kvCache.k = innerK
@@ -120,23 +119,22 @@ class Attention: Trainable {
         }()
       } else {
         (
-          moveHeadsToOuter(kProj(x, weightGradBackend: config.WeightGradBackend))
+          moveHeadsToOuter(kProj(x))
             / sqrt(sqrt(Float(config.HeadDim))),
-          moveHeadsToOuter(vProj(x, weightGradBackend: config.WeightGradBackend))
+          moveHeadsToOuter(vProj(x))
         )
       }
     let q =
-      moveHeadsToOuter(qProj(x, weightGradBackend: config.WeightGradBackend))
+      moveHeadsToOuter(qProj(x))
       / sqrt(sqrt(Float(config.HeadDim)))
 
     let energy = Tensor.batchedMatmul(
-      a: rope(q.cast(.float32), offset: tokenOffset), transA: false, b: rope(k.cast(.float32)),
+      a: rope(q, offset: tokenOffset), transA: false, b: rope(k),
       transB: true, transOut: false)
-    let probs = (energy + causalMask[tokenOffset..<k.shape[2], 0..<k.shape[2]])
-      .softmax().cast(.float16)
+    let probs = (energy + causalMask[tokenOffset..<k.shape[2], 0..<k.shape[2]]).softmax()
     let reducedValues = Tensor.batchedMatmul(
       a: probs, transA: false, b: v, transB: false, transOut: false)
-    return outProj(moveHeadsToInner(reducedValues), weightGradBackend: config.WeightGradBackend)
+    return outProj(moveHeadsToInner(reducedValues))
   }
 }
 
@@ -156,19 +154,15 @@ class Block: Trainable {
     self.norm1 = LayerNorm(shape: [config.ModelDim])
     self.norm2 = LayerNorm(shape: [config.ModelDim])
     self.lin1 = Linear(
-      inCount: config.ModelDim, outCount: config.ModelDim * 2, castParams: .float16, bias: false)
+      inCount: config.ModelDim, outCount: config.ModelDim * 2, bias: false)
     self.lin2 = Linear(
-      inCount: config.ModelDim * 2, outCount: config.ModelDim, castParams: .float16, bias: false)
+      inCount: config.ModelDim * 2, outCount: config.ModelDim, bias: false)
   }
 
   func callAsFunction(_ x: Tensor, kvCache: KVCache.Layer? = nil) -> Tensor {
     var h = x
     h = h + attn(norm1(h), kvCache: kvCache)
-    h =
-      h
-      + lin2(
-        lin1(norm2(h), weightGradBackend: config.WeightGradBackend).gelu(),
-        weightGradBackend: config.WeightGradBackend)
+    h = h + lin2(lin1(norm2(h)).gelu())
     return h
   }
 }
@@ -189,7 +183,7 @@ class Transformer: Trainable {
     normOut = LayerNorm(shape: [config.ModelDim])
 
     unembed = Linear(
-      inCount: config.ModelDim, outCount: config.VocabSize, castParams: .float16, bias: false)
+      inCount: config.ModelDim, outCount: config.VocabSize, bias: false)
 
     // Uniform initial probability
     unembed.weight = unembed.weight.noGrad() * 0
@@ -197,7 +191,7 @@ class Transformer: Trainable {
 
   func callAsFunction(_ x: Tensor, kvCache: KVCache? = nil) -> Tensor {
     // Input should be a [N x T] tensor of indices
-    var h = embed.gather(axis: 0, indices: x.flatten()).cast(.float16).reshape([
+    var h = embed.gather(axis: 0, indices: x.flatten()).reshape([
       x.shape[0], x.shape[1], config.ModelDim,
     ])
 
@@ -211,16 +205,23 @@ class Transformer: Trainable {
       h = layer(h, kvCache: cacheLayer)
     }
     h = normOut(h)
-    h = unembed(h, weightGradBackend: config.WeightGradBackend)
+    h = unembed(h)
     return h
   }
 
-  func sample(prefixes: Tensor, generator: RandomGenerator? = nil, cfgScale: Float? = nil)
+  func sample(
+    prefixes: Tensor, generator: RandomGenerator? = nil, cfgScale: Float? = nil,
+    logInterval: Int? = nil
+  )
     async throws -> Tensor
   {
     var outputs: [Tensor] = []
     for try await x in sampleStream(prefixes: prefixes, generator: generator, cfgScale: cfgScale) {
       outputs.append(x)
+      if let li = logInterval, outputs.count % li == 0 {
+        try await x.wait()
+        print("sampled \(outputs.count) tokens")
+      }
     }
     return Tensor(concat: outputs, axis: 1)
   }
@@ -245,7 +246,7 @@ class Transformer: Trainable {
           // times at once since the internal cast() in the model doesn't
           // depend on any other result tensors.
           prevToken.asDependency {
-            self(prevToken, kvCache: kvCache)[..., -1].cast(.float32)
+            self(prevToken, kvCache: kvCache)[..., -1]
           }
         }
         let guidedLogits =

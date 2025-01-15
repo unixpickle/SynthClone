@@ -24,24 +24,25 @@ class CommandTransformer: Command {
     let model: Trainable.State
     let dataset: TrainAndEval<CaptionedSequenceDataLoader.State>?
     let opt: Adam.State?
-    let gradScale: Float?
   }
 
   let testCaptions = [
-    "a red heart icon, red heart vector graphic",
-    "a green tree, a tree with green leaves",
-    "A blue square. A simple blue square icon.",
-    "a cute corgi vector graphic. corgi dog graphic",
+    "The quick brown fox jumps over the lazy dog",
+    "testing 1 2 3",
+    "Hello, World!",
+    "Alex said to Samantha.",
   ]
 
-  let lr: Float = 0.000075
+  let sampleFilename = "samples.aiff"
+
+  let lr: Float = 0.0001
   let bs = 8
-  let microbatch = 4
+  let microbatch = 2
   let captionBytes: Int = 128
   let vqCount: Int = CommandVQVAE.sampleCount >> 8
   let saveInterval: Int = 5000
   let cfgProb: Float = 0.1
-  let cfgScales: [Float] = [1.0, 2.0, 4.0, 8.0]
+  let cfgScales: [Float] = [1.0, 2.0]
 
   let savePath: String
   let vqPath: String
@@ -49,8 +50,6 @@ class CommandTransformer: Command {
   let vqvae: VQVAE
   let model: Transformer
   let opt: Adam
-  let weightGradBackend: BackendFLOPCounter
-  var gradScale: Float = 65536.0
   var step: Int = 0
 
   var dataStream: DataStream?
@@ -58,7 +57,7 @@ class CommandTransformer: Command {
   var lastDataState: TrainAndEval<CaptionedSequenceDataLoader.State>?
 
   override internal var flopCount: Int64 {
-    return super.flopCount + weightGradBackend.flopCount
+    return super.flopCount
   }
 
   init(_ args: [String]) throws {
@@ -72,14 +71,10 @@ class CommandTransformer: Command {
     vqPath = args[1]
     savePath = args[2]
 
-    weightGradBackend = BackendFLOPCounter(
-      wrapping: CoreMLBackend(wrapping: Backend.defaultBackend))
-
     vqvae = CommandVQVAE.createModel()
     model = Transformer(
       config: TransformerConfig(
-        VocabSize: vqvae.bottleneck.vocab + 256, TokenCount: captionBytes + vqCount,
-        WeightGradBackend: weightGradBackend))
+        VocabSize: vqvae.bottleneck.vocab + 256, TokenCount: captionBytes + vqCount))
     opt = Adam(model.parameters, lr: lr)
   }
 
@@ -121,9 +116,6 @@ class CommandTransformer: Command {
       if let dataState = state.dataset {
         dataLoader.train.state = dataState.train
         dataLoader.eval.state = dataState.eval
-      }
-      if let gs = state.gradScale {
-        gradScale = gs
       }
       step = state.step
     }
@@ -175,75 +167,69 @@ class CommandTransformer: Command {
       let evalLoss = Tensor.withGrad(enabled: false) { loss(batch.eval.0) }
       try await evalLoss.wait()
 
-      var trainLoss: Tensor?
-      var gradNorm: Float?
-      while true {
-        for i in stride(from: 0, to: bs, by: microbatch) {
-          let smallBatch = min(bs - i, microbatch)
-          trainLoss = loss(batch.train.0[i..<(i + smallBatch)])
-          (trainLoss! * gradScale * Float(smallBatch) / Float(bs)).backward()
+      var trainLosses = [Tensor]()
+      for i in stride(from: 0, to: bs, by: microbatch) {
+        let smallBatch = min(bs - i, microbatch)
+        let scale = Float(smallBatch) / Float(bs)
+        let trainLoss = loss(batch.train.0[i..<(i + smallBatch)])
+        (trainLoss * scale).backward()
+        trainLosses.append(trainLoss.noGrad() * scale)
 
-          // Ensure that the memory from the step is done being used.
-          for (_, p) in model.parameters {
-            try await p.grad?.wait()
-          }
+        // Ensure that the memory from the step is done being used.
+        for (_, p) in model.parameters {
+          try await p.grad?.wait()
         }
-        for (_, var p) in model.parameters {
-          if let g = p.grad {
-            p.grad = g / gradScale
-          }
-        }
-        gradNorm = try await model.gradNorm()
-        if gradNorm!.isFinite {
-          gradScale *= 1.01
-          break
-        }
-        gradScale *= 0.5
-        opt.clearGrads()
-        if !(try await trainLoss!.item()).isFinite {
-          print("got NaN in forward pass!")
-          return
-        }
-        trainLoss = nil
-        print("got NaN in backward pass, reducing gradScale to \(gradScale)")
+      }
+      let trainLoss = trainLosses.reduce(Tensor(data: [0.0], shape: []), { x, y in x + y })
+      let gradNorm = try await model.gradNorm()
+      if !gradNorm.isFinite {
+        fatalError("got NaN gradient")
       }
       opt.step()
       opt.clearGrads()
       print(
         "step \(step):"
-          + " loss=\(try await trainLoss!.item())"
+          + " loss=\(try await trainLoss.item())"
           + " valid_loss=\(try await evalLoss.item())"
-          + " grad_norm=\(gradNorm!)"
-          + " grad_scale=\(gradScale)"
+          + " grad_norm=\(gradNorm)"
           + " gflops=\(gflops)")
     }
   }
 
   private func sampleAndSave() async throws {
-    let filename = "text2im_samples.png"
-    print("sampling to \(filename) ...")
-    var images = [Tensor]()
+    print("sampling to \(sampleFilename) ...")
+    var waveforms = [Tensor]()
     for scale in cfgScales {
       let gen = Backend.current.createRandom()
       gen.seed(step)
 
       let captions = captionTensor(testCaptions)
-      let samples = try await model.sample(prefixes: captions, generator: gen, cfgScale: scale)
-      Tensor.withGrad(enabled: false) {
-        images.append(
-          vqvae.sampleFromVQ(samples).move(axis: 0, to: 1).flatten(startAxis: 1))
+      let samples = try await model.sample(
+        prefixes: captions, generator: gen, cfgScale: scale, logInterval: 10)
+
+      // Make sure we have the tokens before using
+      // memory for decoder.
+      try await samples.wait()
+
+      // The decoder is memory hungry, so we microbatch
+      // with batch size 1.
+      for i in 0..<samples.shape[0] {
+        try await Tensor.withGrad(enabled: false) {
+          let waveform = vqvae.sampleFromVQ(samples[i, NewAxis()]).squeeze(axis: 0)
+          try await waveform.wait()
+          waveforms.append(waveform)
+        }
       }
     }
-    let audio = try await tensorToAudio(tensor: Tensor(concat: images, axis: 1))
-    try audio.write(to: URL(filePath: filename))
+    let audio = try await tensorToAudio(tensor: Tensor(concat: waveforms, axis: 1))
+    try audio.write(to: URL(filePath: sampleFilename))
 
     print("saving to \(savePath) ...")
     let state = State(
       step: step,
       model: try await model.state(),
       dataset: lastDataState!,
-      opt: try await opt.state(),
-      gradScale: gradScale
+      opt: try await opt.state()
     )
     let stateData = try PropertyListEncoder().encode(state)
     try stateData.write(to: URL(filePath: savePath), options: .atomic)

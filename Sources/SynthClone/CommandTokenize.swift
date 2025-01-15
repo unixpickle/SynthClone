@@ -45,7 +45,7 @@ class CommandTokenize: Command {
         at: URL(filePath: outputDir), withIntermediateDirectories: false)
     }
 
-    vqvae = VQVAE(channels: 1, vocab: 16384, latentChannels: 4, downsamples: 8)
+    vqvae = CommandVQVAE.createModel()
   }
 
   override public func run() async throws {

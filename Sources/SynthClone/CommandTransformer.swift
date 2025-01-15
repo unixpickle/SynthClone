@@ -38,6 +38,7 @@ class CommandTransformer: Command {
   let bs = 8
   let microbatch = 4
   let captionBytes: Int = 128
+  let vqCount: Int = CommandVQVAE.sampleCount >> 8
   let saveInterval: Int = 5000
   let cfgProb: Float = 0.1
   let cfgScales: [Float] = [1.0, 2.0, 4.0, 8.0]
@@ -77,7 +78,7 @@ class CommandTransformer: Command {
     vqvae = CommandVQVAE.createModel()
     model = Transformer(
       config: TransformerConfig(
-        VocabSize: vqvae.bottleneck.vocab + 256, TokenCount: captionBytes + 16 * 16,
+        VocabSize: vqvae.bottleneck.vocab + 256, TokenCount: captionBytes + vqCount,
         WeightGradBackend: weightGradBackend))
     opt = Adam(model.parameters, lr: lr)
   }
@@ -229,9 +230,8 @@ class CommandTransformer: Command {
       let captions = captionTensor(testCaptions)
       let samples = try await model.sample(prefixes: captions, generator: gen, cfgScale: scale)
       Tensor.withGrad(enabled: false) {
-        let embs = vqvae.bottleneck.embed(samples.reshape([-1, 16, 16]))
         images.append(
-          vqvae.decoder(embs.move(axis: -1, to: 1)).move(axis: 1, to: -1).flatten(endAxis: 1))
+          vqvae.sampleFromVQ(samples).move(axis: 0, to: 1).flatten(startAxis: 1))
       }
     }
     let audio = try await tensorToAudio(tensor: Tensor(concat: images, axis: 1))

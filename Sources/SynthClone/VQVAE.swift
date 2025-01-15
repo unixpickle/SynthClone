@@ -272,6 +272,12 @@ class VQVAE: Trainable {
     return outFlow.noiseToSample(cond: h, temperature: temperature)
   }
 
+  func sampleFromVQ(_ vqs: Tensor, temperature: Float = 1.0) -> Tensor {
+    let embs = bottleneck.embed(vqs).move(axis: -1, to: 1)
+    let h = decoder(embs)
+    return outFlow.noiseToSample(cond: h, temperature: temperature)
+  }
+
   func features(_ x: Tensor) -> Tensor {
     encoder(x).move(axis: 1, to: -1).flatten(endAxis: -2)
   }

@@ -22,6 +22,11 @@ class CommandDedup: Command {
 
     inputDir = args[0]
     outputDir = args[1]
+
+    if !FileManager.default.fileExists(atPath: outputDir) {
+      try FileManager.default.createDirectory(
+        at: URL(filePath: outputDir), withIntermediateDirectories: false)
+    }
   }
 
   override public func run() async throws {

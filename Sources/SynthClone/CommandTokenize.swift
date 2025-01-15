@@ -37,15 +37,15 @@ class CommandTokenize: Command {
     vqPath = args[1]
     outputDir = args[2]
 
-    audioDir = baseDir.appending(component: "outputs")
-    captionDir = baseDir.appending(component: "inputs")
+    audioDir = maybeResolveSymlink(baseDir.appending(component: "outputs"))
+    captionDir = maybeResolveSymlink(baseDir.appending(component: "inputs"))
 
     if !FileManager.default.fileExists(atPath: outputDir) {
       try FileManager.default.createDirectory(
         at: URL(filePath: outputDir), withIntermediateDirectories: false)
     }
 
-    vqvae = VQVAE(channels: 1, vocab: 16384, latentChannels: 4, downsamples: 10)
+    vqvae = VQVAE(channels: 1, vocab: 16384, latentChannels: 4, downsamples: 8)
   }
 
   override public func run() async throws {
@@ -66,7 +66,7 @@ class CommandTokenize: Command {
   }
 
   func listShards() throws -> [Int: [(URL, URL)]] {
-    print("listing image filenames...")
+    print("listing audio filenames...")
     var shards: [Int: [(URL, URL)]] = [:]
     let fileManager = FileManager.default
     var contents = try fileManager.contentsOfDirectory(
@@ -77,9 +77,15 @@ class CommandTokenize: Command {
     contents.shuffle()
     var count = 0
     for audioURL in contents {
+      if audioURL.pathExtension != "aiff" {
+        continue
+      }
       let idxStr = String(
         audioURL.lastPathComponent.split(separator: ".").first!.split(separator: "_").last!)
       let textURL = captionDir.appending(component: "line_\(idxStr).txt")
+      if !fileManager.fileExists(atPath: textURL.path()) {
+        continue
+      }
       let shard = (Int(idxStr)! % 0x100)
       if shards[shard] == nil {
         shards[shard] = []
@@ -114,7 +120,7 @@ class CommandTokenize: Command {
 
     func flushBatch() async throws {
       let vqs = Tensor.withGrad(enabled: false) {
-        let audioTensor = Tensor(stack: currentBatch).move(axis: -1, to: 1)
+        let audioTensor = Tensor(stack: currentBatch)
         let noise = Tensor(randnLike: audioTensor) * CommandVQVAE.inputNoise
         return vqvae.bottleneck(vqvae.encoder(audioTensor + noise)).codes
       }
@@ -161,4 +167,17 @@ class CommandTokenize: Command {
     print(" => added \(numSucceeded) records successfully with \(numFailed) errors")
   }
 
+}
+
+func maybeResolveSymlink(_ path: URL) -> URL {
+  do {
+    let resolvedPath = try FileManager.default.destinationOfSymbolicLink(atPath: path.path())
+    let absoluteResolvedPath =
+      (resolvedPath as NSString).isAbsolutePath
+      ? resolvedPath
+      : (path.path() as NSString).deletingLastPathComponent + "/" + resolvedPath
+    return URL(filePath: absoluteResolvedPath)
+  } catch {
+    return path
+  }
 }

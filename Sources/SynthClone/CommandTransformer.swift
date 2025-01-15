@@ -61,7 +61,7 @@ class CommandTransformer: Command {
   }
 
   init(_ args: [String]) throws {
-    Backend.defaultBackend = try MPSBackend(allocator: .heap(12_000_000_000))
+    Backend.defaultBackend = try MPSBackend(allocator: .heap(13_000_000_000))
 
     if args.count != 3 {
       print("Usage: ... \(Self.usage)")

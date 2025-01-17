@@ -12,6 +12,7 @@ let package = Package(
   dependencies: [
     .package(url: "https://github.com/unixpickle/honeycrisp", from: "0.0.21"),
     .package(url: "https://github.com/apple/swift-argument-parser", from: "1.3.0"),
+    .package(url: "https://github.com/vapor/vapor.git", from: "4.102.1"),
   ],
   targets: [
     .executableTarget(
@@ -19,6 +20,10 @@ let package = Package(
       dependencies: [
         .product(name: "ArgumentParser", package: "swift-argument-parser"),
         .product(name: "Honeycrisp", package: "honeycrisp"),
+        .product(name: "Vapor", package: "vapor"),
+      ],
+      resources: [
+        .process("Resources")
       ]
     )
   ]

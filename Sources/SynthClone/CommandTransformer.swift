@@ -33,14 +33,14 @@ class CommandTransformer: Command {
     "Alex said to Samantha.",
   ]
 
-  let sampleFilename = "samples.aiff"
+  let sampleFilename = "samples.wav"
 
+  static let captionBytes: Int = 128
+  static let vqCount: Int = CommandVQVAE.sampleCount >> 8
   let lr: Float = 0.0001
   let bs = 8
   let microbatch = 2
-  let captionBytes: Int = 128
-  let vqCount: Int = CommandVQVAE.sampleCount >> 8
-  let saveInterval: Int = 5000
+  let saveInterval: Int = 1000
   let cfgProb: Float = 0.1
   let cfgScales: [Float] = [1.0, 2.0]
 
@@ -74,7 +74,7 @@ class CommandTransformer: Command {
     vqvae = CommandVQVAE.createModel()
     model = Transformer(
       config: TransformerConfig(
-        VocabSize: vqvae.bottleneck.vocab + 256, TokenCount: captionBytes + vqCount))
+        VocabSize: vqvae.bottleneck.vocab + 256, TokenCount: Self.captionBytes + Self.vqCount))
     opt = Adam(model.parameters, lr: lr)
   }
 
@@ -90,10 +90,10 @@ class CommandTransformer: Command {
   private func prepare() async throws {
     let dataLoader = TrainAndEval(
       train: try CaptionedSequenceDataLoader(
-        batchSize: bs, dropProb: cfgProb, captionLength: captionBytes,
+        batchSize: bs, dropProb: cfgProb, captionLength: Self.captionBytes,
         captionTokenOffset: vqvae.bottleneck.vocab, shardDir: dataDir),
       eval: try CaptionedSequenceDataLoader(
-        batchSize: bs, dropProb: cfgProb, captionLength: captionBytes,
+        batchSize: bs, dropProb: cfgProb, captionLength: Self.captionBytes,
         captionTokenOffset: vqvae.bottleneck.vocab, shardDir: dataDir, isEval: true)
     )
     self.captionTensor = dataLoader.train.captionTensor
@@ -151,8 +151,8 @@ class CommandTransformer: Command {
       // If we truncate the input, the dimensions aren't aligned well and slow
       // down training significantly.
       //     let outputs = model(batch[..., ..<(-1)])[..., (captionBytes - 1)...]
-      let outputs = model(batch)[..., (captionBytes - 1)..<(batch.shape[1] - 1)]
-      let targets = batch[..., captionBytes...]
+      let outputs = model(batch)[..., (Self.captionBytes - 1)..<(batch.shape[1] - 1)]
+      let targets = batch[..., Self.captionBytes...]
 
       let logProbs = outputs.logSoftmax(axis: -1)
       let losses = -logProbs.gather(axis: -1, indices: targets.unsqueeze(axis: -1))

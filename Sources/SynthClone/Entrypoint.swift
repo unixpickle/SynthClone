@@ -15,6 +15,7 @@ struct Main {
       "transformer": CommandTransformer.init,
       "tokenize": CommandTokenize.init,
       "dedup": CommandDedup.init,
+      "server": CommandServer.init,
     ]
     guard let command = commands[CommandLine.arguments[1]] else {
       print("Unrecognized subcommand: \(CommandLine.arguments[1])")
@@ -34,9 +35,10 @@ struct Main {
     print("Subcommands:")
     print("    \(CommandVQVAE.usage)")
     print("    \(CommandReconstruct.usage)")
+    print("    \(CommandDedup.usage)")
     print("    \(CommandTokenize.usage)")
     print("    \(CommandTransformer.usage)")
-    print("    \(CommandDedup.usage)")
+    print("    \(CommandServer.usage)")
   }
 }
 

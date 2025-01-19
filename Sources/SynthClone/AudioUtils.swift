@@ -100,10 +100,12 @@ private func invertMlaw(mlaw: Tensor) -> Tensor {
   return sign * ((5.5451774445 * abs).exp() - 1) / 255
 }
 
-/// Apply a sinc filter to a [1 x T] PCM waveform.
+/// Apply a sinc filter to a [1 x T] ulaw waveform.
 public func sincFilter(
-  pcm: Tensor, filterSize: Int = 101, sampleRate: Int = 24000, cutoffHz: Float = 3000
+  ulaw: Tensor, filterSize: Int = 101, sampleRate: Int = 24000, cutoffHz: Float = 3000
 ) -> Tensor {
+  let pcm = invertMlaw(mlaw: ulaw)
+
   let fc = cutoffHz / Float(sampleRate / 2)
 
   let n = 1e-9 + Tensor(data: 0..<filterSize, dtype: .float32) / Float((filterSize - 1) / 2)
@@ -130,11 +132,13 @@ public func sincFilter(
       groups: 1,
       channelsLast: false
     )
-    return Tensor.conv1D(
-      config,
-      image: pcm.reshape([1, 1, -1]),
-      kernel: h.reshape([1, 1, -1])
-    ).squeeze(axis: 0)
+    return compressMlaw(
+      pcm: Tensor.conv1D(
+        config,
+        image: pcm.reshape([1, 1, -1]),
+        kernel: h.reshape([1, 1, -1])
+      ).squeeze(axis: 0)
+    )
   } catch {
     fatalError("failed to create convolution: \(error)")
   }

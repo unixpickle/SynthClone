@@ -30,7 +30,8 @@
             border: 1px solid #d5d5d5;
         }
 
-        #guidance-scale-container {
+        #guidance-scale-container,
+        #lowpass-cutoff-container {
             text-align: center;
         }
 
@@ -100,6 +101,10 @@
     <div id="guidance-scale-container">
         <label>Guidance scale:</label>
         <input id="guidance-scale" value="1">
+    </div>
+    <div id="lowpass-cutoff-container">
+        <label>Lowpass filter cutoff:</label>
+        <input id="lowpass-cutoff" value="3000">
     </div>
     <div id="output">
         <audio id="sampled-audio" controls>

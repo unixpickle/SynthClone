@@ -16,6 +16,7 @@ class App {
         this.sampledAudioSource = document.getElementById('sampled-audio-source');
         this.progress = document.getElementById('loader-contents');
         this.guidanceScale = document.getElementById('guidance-scale');
+        this.lowpassCutoff = document.getElementById('lowpass-cutoff');
 
         this.prompt.addEventListener('keypress', (event) => {
             if (event.key === "Enter") {
@@ -68,7 +69,10 @@ class App {
         const isDone = this.currentTokens.length == TOTAL_TOKENS;
         this.outputContainer.className = isDone ? 'done' : 'loading';
         if (this.currentTokens.length % 96 == 0 || isDone) {
-            this.sampledAudioSource.src = '/decode?tokens=' + this.currentTokens.join(',');
+            this.sampledAudioSource.src = (
+                '/decode?lowpassCutoff=' + this.lowpassCutoff.value +
+                '&tokens=' + this.currentTokens.join(',')
+            );
             this.sampledAudio.load();
         }
         this.updateProgress();

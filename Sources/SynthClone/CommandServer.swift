@@ -125,6 +125,10 @@ class CommandServer: Command {
         DispatchQueue.global().sync { decodeLock.unlock() }
       }
 
+      guard let lowpassCutoff = request.query[Float.self, at: "lowpassCutoff"] else {
+        print("missing lowpassCutoff in query")
+        return Response(status: .badRequest)
+      }
       guard let tokenStr = request.query[String.self, at: "tokens"] else {
         return Response(status: .badRequest)
       }
@@ -148,8 +152,9 @@ class CommandServer: Command {
           $0.sampleFromVQ(Tensor(data: tokens).unsqueeze(axis: 0)).squeeze(axis: 0)
         }
       }
+      let filtered = sincFilter(ulaw: decoded, cutoffHz: lowpassCutoff)
+      let audio = try await tensorToAudio(tensor: filtered)
 
-      let audio = try await tensorToAudio(tensor: decoded)
       return Response(
         status: .ok,
         headers: ["content-type": "audio/wav"],

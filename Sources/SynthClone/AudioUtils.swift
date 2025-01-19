@@ -99,3 +99,43 @@ private func invertMlaw(mlaw: Tensor) -> Tensor {
   // 5.5451774445 = ln(1 + 255)
   return sign * ((5.5451774445 * abs).exp() - 1) / 255
 }
+
+/// Apply a sinc filter to a [1 x T] PCM waveform.
+public func sincFilter(
+  pcm: Tensor, filterSize: Int = 101, sampleRate: Int = 24000, cutoffHz: Float = 3000
+) -> Tensor {
+  let fc = cutoffHz / Float(sampleRate / 2)
+
+  let n = 1e-9 + Tensor(data: 0..<filterSize, dtype: .float32) / Float((filterSize - 1) / 2)
+
+  // Sinc filter
+  var h = (2 * Float.pi * fc * n).sin() / (Float.pi * n)
+
+  // Apply a Hamming window
+  let window =
+    0.54 - 0.46
+    * (2 * Float.pi * Tensor(data: 0..<filterSize, dtype: .float32) / Float(filterSize - 1)).cos()
+  h = h * window
+  h = h / h.sum()
+
+  do {
+    let config = try Conv1DConfig(
+      inChannels: 1,
+      outChannels: 1,
+      kernelSize: .init(x: filterSize),
+      imageSize: .init(x: pcm.shape[-1]),
+      stride: .init(x: 1),
+      dilation: .init(x: 0),
+      padding: .init(before: .init(x: filterSize / 2), after: .init(x: filterSize / 2)),
+      groups: 1,
+      channelsLast: false
+    )
+    return Tensor.conv1D(
+      config,
+      image: pcm.reshape([1, 1, -1]),
+      kernel: h.reshape([1, 1, -1])
+    ).squeeze(axis: 0)
+  } catch {
+    fatalError("failed to create convolution: \(error)")
+  }
+}

@@ -102,13 +102,12 @@ private func invertMlaw(mlaw: Tensor) -> Tensor {
 
 /// Apply a sinc filter to a [1 x T] ulaw waveform.
 public func sincFilter(
-  ulaw: Tensor, filterSize: Int = 101, sampleRate: Int = 24000, cutoffHz: Float = 3000
+  ulaw: Tensor, filterSize: Int = 201, sampleRate: Int = 24000, cutoffHz: Float = 3000
 ) -> Tensor {
   let pcm = invertMlaw(mlaw: ulaw)
 
   let fc = cutoffHz / Float(sampleRate / 2)
-
-  let n = 1e-9 + Tensor(data: 0..<filterSize, dtype: .float32) / Float((filterSize - 1) / 2)
+  let n = 1e-9 + Tensor(data: (-filterSize/2)...(filterSize/2), dtype: .float32)
 
   // Sinc filter
   var h = (2 * Float.pi * fc * n).sin() / (Float.pi * n)
@@ -125,9 +124,9 @@ public func sincFilter(
       inChannels: 1,
       outChannels: 1,
       kernelSize: .init(x: filterSize),
-      imageSize: .init(x: pcm.shape[-1]),
+      imageSize: .init(x: pcm.shape[1]),
       stride: .init(x: 1),
-      dilation: .init(x: 0),
+      dilation: .init(x: 1),
       padding: .init(before: .init(x: filterSize / 2), after: .init(x: filterSize / 2)),
       groups: 1,
       channelsLast: false

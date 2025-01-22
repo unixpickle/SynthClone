@@ -27,10 +27,10 @@ class CommandTransformer: Command {
   }
 
   let testCaptions = [
-    "The quick brown fox jumps over the lazy dog",
-    "testing 1 2 3",
-    "Hello, World!",
-    "Alex said to Samantha.",
+    "The quick brown fox jumps over the lazy dog\n\r",
+    "testing 1 2 3\n\r",
+    "Hello, World!\n\r",
+    "Alex said to Samantha.\n\r",
   ]
 
   let sampleFilename = "samples.wav"

@@ -17,6 +17,7 @@ class App {
         this.progress = document.getElementById('loader-contents');
         this.guidanceScale = document.getElementById('guidance-scale');
         this.lowpassCutoff = document.getElementById('lowpass-cutoff');
+        this.lowpassCutoff.addEventListener('input', () => this.reloadPreview());
 
         this.prompt.addEventListener('keypress', (event) => {
             if (event.key === "Enter") {
@@ -69,13 +70,20 @@ class App {
         const isDone = this.currentTokens.length == TOTAL_TOKENS;
         this.outputContainer.className = isDone ? 'done' : 'loading';
         if (this.currentTokens.length % 96 == 0 || isDone) {
-            this.sampledAudioSource.src = (
-                '/decode?lowpassCutoff=' + this.lowpassCutoff.value +
-                '&tokens=' + this.currentTokens.join(',')
-            );
-            this.sampledAudio.load();
+            this.reloadPreview();
         }
         this.updateProgress();
+    }
+
+    reloadPreview() {
+        if (this.currentTokens === null) {
+            return;
+        }
+        this.sampledAudioSource.src = (
+            '/decode?lowpassCutoff=' + this.lowpassCutoff.value +
+            '&tokens=' + this.currentTokens.join(',')
+        );
+        this.sampledAudio.load();
     }
 
     updateProgress() {

@@ -101,7 +101,7 @@ class CommandServer: Command {
           let bufferFiller = [String](repeating: "\n", count: 4096).joined().utf8
           try await writer.write(.buffer(ByteBuffer(data: Data(bufferFiller))))
 
-          for try await token in sampleFunc(prompt, guidanceScale) {
+          for try await token in sampleFunc(prompt + "\n\r", guidanceScale) {
             try await writer.write(.buffer(ByteBuffer(bytes: Data("\(token)\n".utf8))))
           }
           try await writer.write(.end)

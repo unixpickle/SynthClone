@@ -19,9 +19,10 @@ class CommandVQVAE: Command {
   static let inputNoise = 0.0001
 
   let lr: Float = 0.00001
-  let bs = 2
+  let bs = 16
+  let microbatch = 1
   let reviveInterval = 500
-  let reviveBatches = 16
+  let reviveBatches = 2
   let commitCoeff = 5.0
   let sampleTemp = 0.8
 
@@ -95,6 +96,18 @@ class CommandVQVAE: Command {
     return dataStream!.prefix(n)
   }
 
+  private func featuresForBatch(_ batch: Tensor) -> Tensor {
+    var results = [Tensor]()
+    var prev = batch
+    for i in stride(from: 0, to: batch.shape[0], by: microbatch) {
+      let bs = min(batch.shape[0] - i, microbatch)
+      let subFeats = prev.asDependency { model.features(batch[i..<(i + bs)]) }
+      results.append(subFeats)
+      prev = subFeats
+    }
+    return Tensor(concat: results)
+  }
+
   private func revive() async throws {
     print("reviving unused dictionary entries...")
     print(" => collecting features...")
@@ -104,7 +117,7 @@ class CommandVQVAE: Command {
     }
     let revivedCount = Tensor.withGrad(enabled: false) {
       let features = model.withMode(.inference) {
-        Tensor(concat: reviveBatch.map(model.features))
+        featuresForBatch(Tensor(concat: reviveBatch))
       }
       print(" => collected \(features.shape[0]) features")
       return model.bottleneck.revive(features)
@@ -116,17 +129,32 @@ class CommandVQVAE: Command {
     print("training...")
     for try await (batch, _) in takeDataset(reviveInterval) {
       let batch = batch + Tensor(randnLike: batch) * Self.inputNoise
+      var avgLoss: Float = 0
+      var avgCommitment: Float = 0
+      for i in stride(from: 0, to: batch.shape[0], by: microbatch) {
+        if i > 0 {
+          for (_, param) in model.parameters {
+            try await param.grad!.wait()
+          }
+        }
+
+        let microBS = min(batch.shape[0] - i, microbatch)
+        let normalizer = Float(microBS) / Float(batch.shape[0])
+        let (nll, vqLosses) = model(batch[i..<(i + microBS)])
+        let loss = nll.mean()
+        ((loss + vqLosses.codebookLoss + commitCoeff * vqLosses.commitmentLoss) * normalizer)
+          .backward()
+        avgLoss += try await loss.item() * normalizer
+        avgCommitment += try await vqLosses.commitmentLoss.item() * normalizer
+      }
       step += 1
-      let (nll, vqLosses) = model(batch)
-      let loss = nll.mean()
-      (loss + vqLosses.codebookLoss + commitCoeff * vqLosses.commitmentLoss).backward()
       let (gradNorm, clipScale) = try await clipper.clipGrads(model: model)
       opt.step()
       opt.clearGrads()
       print(
         "step \(step):"
-          + " loss=\(try await loss.item())"
-          + " commitment=\(try await vqLosses.commitmentLoss.item())"
+          + " loss=\(avgLoss)"
+          + " commitment=\(avgCommitment)"
           + " grad_norm=\(gradNorm)"
           + " grad_scale=\(clipScale)"
           + " gflops=\(gflops)")

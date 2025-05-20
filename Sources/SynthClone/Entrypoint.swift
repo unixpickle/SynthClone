@@ -5,7 +5,7 @@ import Honeycrisp
 @main
 struct Main {
   static func main() async {
-    print("Command: \(CommandLine.arguments.joined(by: " "))")
+    print("Command: \(CommandLine.arguments.joined(separator: " "))")
     if CommandLine.arguments.count < 2 {
       printHelp()
       return
